@@ -108,6 +108,7 @@ Process files with multiple parameter combinations:
 |-----|--------|
 | `Space` | Play / Pause |
 | `R` | Run conversion on selection (or entire file) |
+| `F1` - `F12` | Load preset **and auto-convert** selection |
 | `I` | Add marker at cursor / Add markers at selection bounds |
 | `0` - `9` | Switch to version N in part under cursor (0 = original) |
 | `Ctrl + Wheel` | Zoom in/out |
@@ -123,6 +124,19 @@ Process files with multiple parameter combinations:
 |--------|--------|
 | Click preset button | **Save** current settings to that slot |
 | Press F1-F12 | **Load** preset (respects toggle options) |
+
+## Quick Workflow
+
+The Editor is optimized for rapid A/B comparison:
+
+1. Load audio, select a region
+2. Press `F1` → preset loads, conversion runs automatically
+3. Listen to result (right-click to play)
+4. Press `F2` → different preset, new version added
+5. Scroll wheel on Result track to compare versions
+6. Repeat until satisfied, save final result
+
+> **Tip**: Configure different models/pitches in F1-F12 presets. Each keypress = instant conversion with those settings. No extra clicks needed.
 
 ## Parameters
 
