@@ -97,7 +97,7 @@ def check_dependencies():
 
 def main():
     print("=" * 50)
-    print(tr("RVC Voice Converter"))
+    print(tr("RVC Editor"))
     print("=" * 50)
     print(f"RVC: {RVC_ROOT}")
     print()

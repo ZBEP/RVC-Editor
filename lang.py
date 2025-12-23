@@ -136,7 +136,7 @@ TRANSLATIONS = {
     "Load error:": {"ru": "Ошибка загрузки:", "zh": "加载错误:"},
     "base": {"ru": "база", "zh": "基础"},
     
-    "RVC Voice Converter": {"ru": "RVC Конвертер голоса", "zh": "RVC语音转换器"},
+    "RVC Editor": {"ru": "RVC Editor", "zh": "RVC Editor"},
     "Log": {"ru": "Лог", "zh": "日志"},
     "Editor": {"ru": "Редактор", "zh": "编辑器"},
     "Conversion": {"ru": "Конвертация", "zh": "转换"},

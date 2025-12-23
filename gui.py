@@ -18,7 +18,7 @@ from lang import tr
 class RVCConverterGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title(tr("RVC Voice Converter"))
+        self.root.title(tr("RVC Editor"))
         
         self.saved_settings = load_settings()
         self.presets = load_presets()
