@@ -319,7 +319,6 @@ class VoiceConverter:
             model_name = os.path.splitext(self.current_model_name)[0]
         
         pitch = kwargs.get("pitch", 0)
-        filter_radius = kwargs.get("filter_radius", 3)
         
         total_operations = len(files) * len(presets)
         current_op = 0
@@ -337,12 +336,22 @@ class VoiceConverter:
                     f"{tr('Operation')} {current_op}/{total_operations}"
                 )
                 
-                output_filename = f"{model_name} {pitch:+d} I{preset['index_rate']:.2f} P{preset['protect']:.2f} F{filter_radius} {name}.{output_format}"
+                f0_method = preset.get("f0_method", kwargs.get("f0_method", "rmvpe"))
+                filter_radius = preset.get("filter_radius", kwargs.get("filter_radius", 3))
+                crepe_hop = preset.get("crepe_hop_length", kwargs.get("crepe_hop_length", 120))
+                
+                f0_short = {"rmvpe": "RM", "mangio-crepe": "MC", "crepe": "CR"}.get(f0_method, f0_method[:2].upper())
+                hop_suffix = f"_H{crepe_hop}" if "crepe" in f0_method else ""
+                
+                output_filename = f"{model_name} {pitch:+d} {f0_short}{hop_suffix} I{preset['index_rate']:.2f} P{preset['protect']:.2f} F{filter_radius} {name}.{output_format}"
                 output_path = os.path.join(output_dir, output_filename)
                 
                 convert_kwargs = {**kwargs}
                 convert_kwargs["index_rate"] = preset["index_rate"]
                 convert_kwargs["protect"] = preset["protect"]
+                convert_kwargs["f0_method"] = f0_method
+                convert_kwargs["filter_radius"] = filter_radius
+                convert_kwargs["crepe_hop_length"] = crepe_hop
                 
                 success = self.convert(input_path, output_path, **convert_kwargs)
                 results.append({

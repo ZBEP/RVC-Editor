@@ -4,345 +4,13 @@ from tkinter import ttk, filedialog, messagebox
 import numpy as np
 import threading
 import time
-import uuid
 import json
 
 from lang import tr
+from parts import PartGroup
+from waveform import WaveformCanvas, PART_ROW_HEIGHT, PART_TOP_MARGIN
 
-
-class PartGroup:
-    
-    def __init__(self, start, end, parts_dir, sr):
-        self.id = uuid.uuid4().hex[:8]
-        self.start = start
-        self.end = end
-        self.parts_dir = parts_dir
-        self.sr = sr
-        self.versions = []
-        self.active_idx = 0
-        self.level = 0
-        self.has_base = False
-        self.created_at = time.time()
-    
-    def set_base(self, audio_data):
-        if self.versions:
-            return
-        import soundfile as sf
-        path = os.path.join(self.parts_dir, f"{self.id}_base.wav")
-        sf.write(path, audio_data, self.sr)
-        self.versions.append(path)
-        self.has_base = True
-        self.active_idx = 0
-    
-    def add_version(self, audio_data):
-        import soundfile as sf
-        idx = len(self.versions)
-        path = os.path.join(self.parts_dir, f"{self.id}_v{idx}.wav")
-        sf.write(path, audio_data, self.sr)
-        self.versions.append(path)
-        self.active_idx = len(self.versions) - 1
-        return self.active_idx
-    
-    def get_data(self, idx=None):
-        if idx is None:
-            idx = self.active_idx
-        if not self.versions or idx >= len(self.versions):
-            return None
-        import soundfile as sf
-        path = self.versions[idx]
-        if os.path.exists(path):
-            data, _ = sf.read(path)
-            return data.astype(np.float32)
-        return None
-    
-    def get_base_data(self):
-        if self.has_base and self.versions:
-            return self.get_data(0)
-        return None
-    
-    def switch(self, delta):
-        if len(self.versions) <= 1:
-            return False
-        new_idx = (self.active_idx + delta) % len(self.versions)
-        if new_idx != self.active_idx:
-            self.active_idx = new_idx
-            return True
-        return False
-    
-    def delete_current(self):
-        if len(self.versions) <= 1:
-            return False
-        if self.has_base and self.active_idx == 0 and len(self.versions) == 2:
-            return False
-        path = self.versions.pop(self.active_idx)
-        try: os.remove(path)
-        except: pass
-        self.active_idx = min(self.active_idx, len(self.versions) - 1)
-        return True
-    
-    def delete_others(self):
-        if len(self.versions) <= 1:
-            return
-        keep = self.versions[self.active_idx]
-        for p in self.versions:
-            if p != keep:
-                try: os.remove(p)
-                except: pass
-        self.versions = [keep]
-        self.active_idx = 0
-        self.has_base = False
-    
-    def cleanup(self):
-        for p in self.versions:
-            try: os.remove(p)
-            except: pass
-        self.versions = []
-    
-    def version_count(self):
-        return len(self.versions) - (1 if self.has_base else 0)
-    
-    def version_label(self, idx):
-        if self.has_base and idx == 0:
-            return tr("Original")
-        offset = 1 if self.has_base else 0
-        return f"{tr('Version')} {idx - offset + 1}"
-    
-    def size(self):
-        return self.end - self.start
-    
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "start": self.start,
-            "end": self.end,
-            "active_idx": self.active_idx,
-            "has_base": self.has_base,
-            "versions": [os.path.basename(v) for v in self.versions]
-        }
-
-
-MARKER_HANDLE_HEIGHT = 12
-PART_ROW_HEIGHT = 11
-PART_TOP_MARGIN = 2
-
-
-class WaveformCanvas(tk.Canvas):
-    
-    def __init__(self, parent, editor, is_result=False, height=100, **kwargs):
-        super().__init__(parent, height=height, bg='#1e1e2e', highlightthickness=0, bd=0, **kwargs)
-        
-        self.editor = editor
-        self.is_result = is_result
-        self.color = '#e74c3c' if is_result else '#5dade2'
-        self._drag_marker = None
-        
-        self.bind('<Configure>', lambda e: self.draw())
-        self.bind('<Button-1>', self._on_click)
-        self.bind('<Double-Button-1>', self._on_double_click)
-        self.bind('<B1-Motion>', self._on_drag)
-        self.bind('<ButtonRelease-1>', self._on_release)
-        self.bind('<Button-3>', self._on_right_click)
-        self.bind('<MouseWheel>', self._on_wheel)
-        self.bind('<Motion>', self._on_motion)
-        self.bind('<Enter>', lambda e: self.focus_set())
-        self.bind('<Leave>', lambda e: self.config(cursor=''))
-        
-    def get_audio(self):
-        return self.editor.result_audio_display if self.is_result else self.editor.source_audio_display
-    
-    def _get_parts_zone_height(self):
-        if not self.is_result or not self.editor.part_groups:
-            return 0
-        max_level = max((g.level for g in self.editor.part_groups), default=0)
-        return PART_TOP_MARGIN + (max_level + 1) * PART_ROW_HEIGHT
-    
-    def _in_parts_zone(self, y):
-        return self.is_result and y < self._get_parts_zone_height()
-    
-    def _in_marker_zone(self, y):
-        return not self.is_result and y < MARKER_HANDLE_HEIGHT
-        
-    def draw(self):
-        self.delete('all')
-        w, h = self.winfo_width(), self.winfo_height()
-        mid = h // 2
-        ed = self.editor
-        audio = self.get_audio()
-        
-        if audio is None or ed.total_samples == 0:
-            self.create_text(w // 2, mid, text=tr("Result") if self.is_result else tr("Load WAV"), fill='#666')
-            return
-        
-        visible = ed.total_samples / ed.zoom
-        spp = visible / max(1, w)
-        
-        if ed.sel_start is not None:
-            x1, x2 = ed._s2x(min(ed.sel_start, ed.sel_end), w), ed._s2x(max(ed.sel_start, ed.sel_end), w)
-            self.create_rectangle(x1, 0, x2, h, fill='#2d4a6f', outline='#4a7ab0')
-        
-        for x in range(w):
-            s0 = int(ed.offset + x * spp)
-            s1 = min(int(ed.offset + (x + 1) * spp), len(audio))
-            if s0 >= len(audio):
-                break
-            chunk = audio[s0:s1]
-            if len(chunk):
-                amp = np.max(np.abs(chunk))
-                y = int(amp * mid * 0.9)
-                self.create_line(x, mid - y, x, mid + y, fill=self.color)
-        
-        self.create_line(0, mid, w, mid, fill='#444')
-        
-        if not self.is_result:
-            for i, marker in enumerate(ed.markers):
-                mx = ed._s2x(marker, w)
-                if 0 <= mx <= w:
-                    self.create_line(mx, 0, mx, h, fill='#ff9800', width=2, dash=(4, 2))
-                    self.create_rectangle(mx-4, 0, mx+4, MARKER_HANDLE_HEIGHT, 
-                                          fill='#ff9800', outline='#e65100', tags=f'marker_{i}')
-        
-        if self.is_result and ed.part_groups:
-            ed._assign_levels()
-            for g in ed.part_groups:
-                gx1, gx2 = ed._s2x(g.start, w), ed._s2x(g.end, w)
-                if gx2 < 0 or gx1 > w:
-                    continue
-                
-                y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
-                y2 = y1 + PART_ROW_HEIGHT - 2
-                
-                if g.has_base and g.active_idx == 0:
-                    fill, outline = '#566573', '#444'
-                elif len(g.versions) > (2 if g.has_base else 1):
-                    fill, outline = '#9b59b6', '#8e44ad'
-                else:
-                    fill, outline = '#7f8c8d', '#566573'
-                
-                x1_c, x2_c = max(0, gx1), min(w, gx2)
-                self.create_rectangle(x1_c, y1, x2_c, y2, fill=fill, outline=outline)
-                
-                if (x2_c - x1_c) > 30:
-                    cx = (x1_c + x2_c) // 2
-                    if g.has_base:
-                        txt = tr("base") if g.active_idx == 0 else f"{g.active_idx}/{len(g.versions)-1}"
-                    else:
-                        txt = f"{g.active_idx+1}/{len(g.versions)}" if len(g.versions) > 1 else ""
-                    if txt:
-                        self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff', font=('Consolas', 7))
-        
-        if ed.part_groups:
-            drawn = set()
-            for g in ed.part_groups:
-                for b in [g.start, g.end]:
-                    if b not in drawn:
-                        drawn.add(b)
-                        bx = ed._s2x(b, w)
-                        if 0 <= bx <= w:
-                            self.create_line(bx, 0, bx, h, fill='#8e44ad', width=1, dash=(2, 2))
-        
-        if ed.play_pos is not None and 0 <= ed.play_pos < ed.total_samples:
-            px = ed._s2x(ed.play_pos, w)
-            if 0 <= px <= w:
-                self.create_line(px, 0, px, h, fill='#00ff00', width=2)
-        
-        if ed.cursor_pos is not None:
-            cx = ed._s2x(ed.cursor_pos, w)
-            if 0 <= cx <= w:
-                self.create_line(cx, 0, cx, h, fill='#ffff00', width=1, dash=(3, 3))
-    
-    def _find_marker_at(self, x, threshold=8):
-        w = self.winfo_width()
-        for i, m in enumerate(self.editor.markers):
-            mx = self.editor._s2x(m, w)
-            if abs(x - mx) <= threshold:
-                return i
-        return None
-    
-    def _find_part_at(self, x, y):
-        if not self.is_result:
-            return None
-        w = self.winfo_width()
-        sample = self.editor._x2s(x, w)
-        for g in self.editor.part_groups:
-            y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
-            y2 = y1 + PART_ROW_HEIGHT
-            if y1 <= y < y2 and g.start <= sample < g.end:
-                return g
-        return None
-    
-    def _on_motion(self, e):
-        ed = self.editor
-        if not self.is_result and self._in_marker_zone(e.y):
-            if self._find_marker_at(e.x) is not None:
-                self.config(cursor='sb_h_double_arrow')
-                return
-        if self._in_parts_zone(e.y):
-            if self._find_part_at(e.x, e.y) is not None:
-                self.config(cursor='hand2')
-                return
-        if ed.sel_start is not None:
-            w = self.winfo_width()
-            s1, s2 = sorted([ed.sel_start, ed.sel_end])
-            xl, xr = ed._s2x(s1, w), ed._s2x(s2, w)
-            if abs(e.x - xl) < 6 or abs(e.x - xr) < 6:
-                self.config(cursor='sb_h_double_arrow')
-                return
-        self.config(cursor='')
-            
-    def _on_wheel(self, e):
-        if e.state & 0x4:
-            self.editor._on_zoom(e, self.winfo_width())
-        elif e.state & 0x1:
-            self.editor._on_scroll(e, self.winfo_width())
-        elif self.is_result:
-            sample = self.editor._x2s(e.x, self.winfo_width())
-            self.editor._switch_version_at(sample, 1 if e.delta > 0 else -1)
-        
-    def _on_click(self, e):
-        ed = self.editor
-        w = self.winfo_width()
-        if not self.is_result and self._in_marker_zone(e.y):
-            marker_idx = self._find_marker_at(e.x)
-            if marker_idx is not None:
-                self._drag_marker = marker_idx
-                return
-        ed._on_click(e, w, self.is_result)
-        
-    def _on_double_click(self, e):
-        self.editor._on_double_click(e, self.winfo_width(), self.is_result)
-        
-    def _on_drag(self, e):
-        w = self.winfo_width()
-        if self._drag_marker is not None:
-            sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
-            self.editor.markers[self._drag_marker] = sample
-            self.editor._redraw()
-            return
-        self.editor._on_drag(e, w)
-        
-    def _on_release(self, e):
-        if self._drag_marker is not None:
-            self.editor.markers.sort()
-            self._drag_marker = None
-            self.editor._redraw()
-            self.editor._save_project()
-            return
-        self.editor._on_release()
-    
-    def _on_right_click(self, e):
-        w = self.winfo_width()
-        if not self.is_result and self._in_marker_zone(e.y):
-            marker_idx = self._find_marker_at(e.x)
-            if marker_idx is not None:
-                self.editor._show_marker_menu(e, marker_idx)
-                return
-        if self._in_parts_zone(e.y):
-            part = self._find_part_at(e.x, e.y)
-            if part is not None:
-                self.editor._show_part_menu(e, part)
-                return
-        self.editor._switch_track_and_play(self.is_result, e.x, w)
-
+SNAP_THRESHOLD_PX = 10
 
 class EditorTab:
     
@@ -399,6 +67,10 @@ class EditorTab:
         parent.winfo_toplevel().bind('<space>', self._hotkey_play)
         parent.winfo_toplevel().bind('<i>', self._hotkey_marker)
         parent.winfo_toplevel().bind('<I>', self._hotkey_marker)
+        parent.winfo_toplevel().bind('<Left>', self._hotkey_left)
+        parent.winfo_toplevel().bind('<Right>', self._hotkey_right)
+        parent.winfo_toplevel().bind('<Shift-Left>', self._hotkey_shift_left)
+        parent.winfo_toplevel().bind('<Shift-Right>', self._hotkey_shift_right)
         
         for i in range(10):
             parent.winfo_toplevel().bind(f'<Key-{i}>', self._hotkey_number)
@@ -416,10 +88,7 @@ class EditorTab:
     
     def _get_parts_dir(self):
         project_dir = self._get_project_dir()
-        if project_dir:
-            d = os.path.join(project_dir, "parts")
-        else:
-            d = os.path.join(self.get_output_dir(), "editor", "_temp", "parts")
+        d = os.path.join(project_dir, "parts") if project_dir else os.path.join(self.get_output_dir(), "editor", "_temp", "parts")
         os.makedirs(d, exist_ok=True)
         return d
     
@@ -429,7 +98,6 @@ class EditorTab:
             return
         
         os.makedirs(project_dir, exist_ok=True)
-        
         import soundfile as sf
         
         if self.result_audio is not None:
@@ -489,6 +157,9 @@ class EditorTab:
                 g.active_idx = min(p["active_idx"], len(versions) - 1)
                 g.has_base = p["has_base"]
                 g.versions = versions
+                g.version_params = p.get("version_params", [None] * len(versions))
+                while len(g.version_params) < len(versions):
+                    g.version_params.append(None)
                 self.part_groups.append(g)
             
             self.log(tr("Project loaded"))
@@ -497,9 +168,6 @@ class EditorTab:
         except Exception as e:
             self.log(f"{tr('Project load error:')} {e}")
             return False
-    
-    def _clear_parts(self):
-        self.part_groups = []
     
     def _assign_levels(self):
         if not self.part_groups:
@@ -747,13 +415,100 @@ class EditorTab:
         self._redraw()
         self._update_time()
         
-    def _on_release(self):
-        if self.sel_start is not None and abs(self.sel_end - self.sel_start) < 100:
-            self.cursor_pos = self.sel_start
-            self.sel_start = self.sel_end = None
-            self._redraw()
+    def _on_release(self, width=None):
+        if width is None:
+            width = self.source_wf.winfo_width()
+        
+        if self.sel_start is not None:
+            if abs(self.sel_end - self.sel_start) < 100:
+                # Клик -> курсор со snap
+                self.cursor_pos = self._snap_to_points(self.sel_start, width)
+                self.sel_start = self.sel_end = None
+            else:
+                # Snap границ выделения
+                s1, s2 = sorted([self.sel_start, self.sel_end])
+                s1 = self._snap_to_points(s1, width)
+                s2 = self._snap_to_points(s2, width)
+                self.sel_start, self.sel_end = s1, s2
+        
         self._drag_mode = None
+        self._redraw()
         self._update_time()
+
+    def _snap_to_points(self, sample, width):
+        """Примагничивание к частям и маркерам"""
+        if self.total_samples == 0 or width <= 0:
+            return sample
+        
+        samples_per_px = self.total_samples / self.zoom / width
+        threshold = max(1, int(SNAP_THRESHOLD_PX * samples_per_px))
+        
+        snap_points = []
+        for g in self.part_groups:
+            snap_points.extend([g.start, g.end])
+        snap_points.extend(self.markers)
+        
+        best, best_dist = sample, threshold + 1
+        for pt in snap_points:
+            dist = abs(sample - pt)
+            if dist < best_dist:
+                best, best_dist = pt, dist
+        
+        return best if best_dist <= threshold else sample
+    
+    def _get_cursor_step(self, large=False):
+        """Шаг перемещения курсора стрелками"""
+        if self.total_samples == 0:
+            return 0
+        visible = int(self.total_samples / self.zoom)
+        return max(1, visible // (20 if large else 200))
+    
+    def _move_cursor(self, delta):
+        """Перемещение курсора стрелками (без snap)"""
+        if self.source_audio is None:
+            return
+        pos = self.cursor_pos if self.cursor_pos is not None else 0
+        pos = max(0, min(self.total_samples - 1, pos + delta))
+        self.cursor_pos = pos
+        self.sel_start = self.sel_end = None
+        self._redraw()
+        self._update_time()
+    
+    def _hotkey_left(self, e=None):
+        try:
+            if self.parent.master.index(self.parent.master.select()) != 0:
+                return
+        except:
+            pass
+        self._move_cursor(-self._get_cursor_step())
+        return "break"
+    
+    def _hotkey_right(self, e=None):
+        try:
+            if self.parent.master.index(self.parent.master.select()) != 0:
+                return
+        except:
+            pass
+        self._move_cursor(self._get_cursor_step())
+        return "break"
+    
+    def _hotkey_shift_left(self, e=None):
+        try:
+            if self.parent.master.index(self.parent.master.select()) != 0:
+                return
+        except:
+            pass
+        self._move_cursor(-self._get_cursor_step(large=True))
+        return "break"
+    
+    def _hotkey_shift_right(self, e=None):
+        try:
+            if self.parent.master.index(self.parent.master.select()) != 0:
+                return
+        except:
+            pass
+        self._move_cursor(self._get_cursor_step(large=True))
+        return "break"
     
     def _find_group(self, start, end):
         for g in self.part_groups:
@@ -763,16 +518,37 @@ class EditorTab:
     
     def _get_group_at(self, sample):
         matching = [g for g in self.part_groups if g.start <= sample < g.end]
-        if not matching:
-            return None
-        return max(matching, key=lambda g: g.level)
+        return max(matching, key=lambda g: g.level) if matching else None
     
     def _switch_version_at(self, sample, delta):
         g = self._get_group_at(sample)
-        if g and g.switch(delta):
-            self._apply_version(g)
-            self._save_project()
-            self.log(f"{g.version_label(g.active_idx)}")
+        if g:
+            self._switch_version_and_play(g, delta)
+    
+    def _switch_version_and_play(self, part, delta):
+        if not part.switch(delta):
+            return
+        self._apply_version(part)
+        self._save_project()
+        
+        params_str = part.format_params(part.active_idx)
+        label = part.version_label(part.active_idx)
+        self.log(f"{label}: {params_str}" if params_str else label)
+        
+        self._active_track = 'result'
+        self._update_active_label()
+        
+        if not self._stream_active:
+            self._init_stream()
+        
+        pos = self.cursor_pos or 0
+        if not (part.start <= pos < part.end):
+            pos = part.start
+        
+        self._play_pos = self._play_start = pos
+        self._play_end = part.end
+        self._is_playing = True
+        self.play_btn.config(text="⏸")
     
     def _apply_version(self, group):
         data = group.get_data()
@@ -794,8 +570,12 @@ class EditorTab:
         menu.add_separator()
         
         for i in range(len(part.versions)):
-            lbl = f"{'● ' if i == part.active_idx else '  '}{part.version_label(i)}"
-            menu.add_command(label=lbl, command=lambda idx=i, p=part: self._set_version(p, idx))
+            lbl = part.version_label(i)
+            params_str = part.format_params(i)
+            if params_str:
+                lbl = f"{lbl}: {params_str}"
+            prefix = "● " if i == part.active_idx else "  "
+            menu.add_command(label=f"{prefix}{lbl}", command=lambda idx=i, p=part: self._set_version(p, idx))
         
         if len(part.versions) > 1:
             menu.add_separator()
@@ -817,7 +597,9 @@ class EditorTab:
         part.active_idx = idx
         self._apply_version(part)
         self._save_project()
-        self.log(f"{part.version_label(idx)}")
+        label = part.version_label(idx)
+        params_str = part.format_params(idx)
+        self.log(f"{label}: {params_str}" if params_str else label)
     
     def _delete_version(self, part):
         if part.delete_current():
@@ -945,6 +727,13 @@ class EditorTab:
     def _redraw(self):
         self.source_wf.draw()
         self.result_wf.draw()
+        if self.play_pos is not None or self.source_wf._last_playhead_x is not None:
+            self.source_wf.update_playhead()
+            self.result_wf.update_playhead()
+        
+    def _update_playhead(self):
+        self.source_wf.update_playhead()
+        self.result_wf.update_playhead()
         
     def _update_time(self):
         if not self.sr: return
@@ -970,7 +759,7 @@ class EditorTab:
             import soundfile as sf
             data, sr = sf.read(path)
             
-            self._clear_parts()
+            self.part_groups = []
             self.markers.clear()
             self.result_audio = None
             self.result_audio_display = None
@@ -1012,14 +801,9 @@ class EditorTab:
             return
         project_dir = self._get_project_dir() or self.get_output_dir()
         
-        model_name = ""
         preset = self.get_preset_info()
-        if preset.get("model"):
-            model_name = os.path.splitext(preset["model"])[0]
-        
-        source_name = ""
-        if self.source_path:
-            source_name = os.path.splitext(os.path.basename(self.source_path))[0]
+        model_name = os.path.splitext(preset["model"])[0] if preset.get("model") else ""
+        source_name = os.path.splitext(os.path.basename(self.source_path))[0] if self.source_path else ""
         
         if model_name and source_name:
             default_name = f"{model_name} {source_name}.wav"
@@ -1050,6 +834,7 @@ class EditorTab:
         if self.sr is None: return
         try:
             import sounddevice as sd
+            
             def callback(outdata, frames, time_info, status):
                 if not self._is_playing:
                     outdata.fill(0)
@@ -1068,7 +853,7 @@ class EditorTab:
             
             self._stream = sd.OutputStream(
                 samplerate=self.sr, channels=1, callback=callback,
-                device=self.output_device, blocksize=256, latency='low'
+                device=self.output_device, blocksize=512, latency='low'
             )
             self._stream.start()
             self._stream_active = True
@@ -1076,9 +861,11 @@ class EditorTab:
             def updater():
                 while self._stream_active:
                     if self._is_playing:
-                        self.parent.after(0, self._redraw)
-                        self.parent.after(0, self._sync_play_button)
-                    time.sleep(0.03)
+                        self.parent.after_idle(self._update_playhead)
+                        self.parent.after_idle(self._sync_play_button)
+                    interval = 0.05 / max(1, self.zoom ** 0.5)
+                    interval = max(0.012, min(0.05, interval))
+                    time.sleep(interval)
             threading.Thread(target=updater, daemon=True).start()
         except Exception as e:
             self.log(f"{tr('Audio error:')} {e}")
@@ -1162,7 +949,10 @@ class EditorTab:
         self._save_project()
         self._active_track = 'result'
         self._update_active_label()
-        self.log(f"{part.version_label(part.active_idx)}")
+        
+        label = part.version_label(part.active_idx)
+        params_str = part.format_params(part.active_idx)
+        self.log(f"{label}: {params_str}" if params_str else label)
         
         if not self._stream_active:
             self._init_stream()
@@ -1211,16 +1001,14 @@ class EditorTab:
                 
                 import soundfile as sf
                 project_dir = self._get_project_dir()
+                tmp_dir = project_dir if project_dir else self.get_output_dir()
                 if project_dir:
                     os.makedirs(project_dir, exist_ok=True)
-                    tmp_dir = project_dir
-                else:
-                    tmp_dir = self.get_output_dir()
                 
                 tmp_in = os.path.join(tmp_dir, "_temp_in.wav")
                 tmp_out = os.path.join(tmp_dir, "_temp_out.wav")
                 
-                # ВАЖНО: используем source_audio для конвертации
+                # ВАЖНО: source_audio для конвертации (НЕ source_audio_display!)
                 sf.write(tmp_in, self.source_audio[start:end].copy(), self.sr)
                 
                 self.parent.after(0, lambda: self.log(f"{tr('Converting')} {(end-start)/self.sr:.2f}s..."))
@@ -1233,6 +1021,9 @@ class EditorTab:
                     if csr != self.sr:
                         import librosa
                         converted = librosa.resample(converted, orig_sr=csr, target_sr=self.sr)
+                    
+                    if len(converted.shape) > 1:
+                        converted = converted.mean(axis=1).astype(np.float32)
                     
                     first_convert = self.result_audio is None
                     
@@ -1259,7 +1050,17 @@ class EditorTab:
                     self.result_audio[start:end] = converted
                     self.result_audio_display[start:end] = converted
                     
-                    group.add_version(converted)
+                    version_params = {
+                        "pitch": params.get("pitch", 0),
+                        "f0_method": params.get("f0_method", "rmvpe"),
+                        "index_rate": params.get("index_rate", 0.9),
+                        "filter_radius": params.get("filter_radius", 3),
+                        "resample_sr": params.get("resample_sr", 0),
+                        "rms_mix_rate": params.get("rms_mix_rate", 0.25),
+                        "protect": params.get("protect", 0.33),
+                        "crepe_hop_length": params.get("crepe_hop_length", 120)
+                    }
+                    group.add_version(converted, version_params)
                     
                     self._active_track = 'result'
                     
