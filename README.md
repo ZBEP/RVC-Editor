@@ -131,12 +131,18 @@ The Editor is optimized for rapid A/B comparison:
 
 1. Load audio, select a region
 2. Press `F1` → preset loads, conversion runs automatically
-3. Listen to result (right-click to play)
-4. Press `F2` → different preset, new version added
-5. Scroll wheel on Result track to compare versions
-6. Repeat until satisfied, save final result
+3. Press `Space` to play, or `0`-`9` for instant version switch + playback
+4. Press `F2` → different preset, new version added to the same region
+5. Use `0`-`9` to quickly compare: `0` = original, `1` = first conversion, `2` = second, etc.
+6. Scroll wheel on Result track also switches versions (without playback)
+7. Save final result
 
-> **Tip**: Configure different models/pitches in F1-F12 presets. Each keypress = instant conversion with those settings. No extra clicks needed.
+**Version hotkeys (`0`-`9`)**:
+- Switch to that version in the part under cursor
+- Immediately start playback from cursor position
+- Playback stops at part boundary — perfect for focused comparison
+
+> **Tip**: Set up different models or pitches in F1-F12 presets. Workflow becomes: `F1` → `1` → `F2` → `2` → `1` → `2` → decide. Each keypress is instant, no mouse needed.
 
 ## Parameters
 
