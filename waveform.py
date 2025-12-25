@@ -121,7 +121,9 @@ class WaveformCanvas(tk.Canvas):
                 y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
                 y2 = y1 + PART_ROW_HEIGHT - 2
                 
-                if g.has_base and g.active_idx == 0:
+                if g.is_overridden:
+                    fill, outline = '#943126', '#641e16'
+                elif g.has_base and g.active_idx == 0:
                     fill, outline = '#566573', '#444'
                 elif len(g.versions) > (2 if g.has_base else 1):
                     fill, outline = '#9b59b6', '#8e44ad'
