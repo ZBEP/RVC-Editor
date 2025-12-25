@@ -19,7 +19,6 @@ class PartGroup:
         self.active_idx = 0
         self.level = 0
         self.has_base = False
-        self.is_overridden = False
         self.created_at = time.time()
     
     def set_base(self, audio_data):
@@ -138,7 +137,6 @@ class PartGroup:
         return {
             "id": self.id, "start": self.start, "end": self.end,
             "active_idx": self.active_idx, "has_base": self.has_base,
-            "is_overridden": self.is_overridden,
             "versions": [os.path.basename(v) for v in self.versions],
             "version_params": self.version_params
         }

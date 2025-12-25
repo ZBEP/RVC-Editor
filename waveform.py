@@ -18,6 +18,7 @@ class WaveformCanvas(tk.Canvas):
         self.color = '#e74c3c' if is_result else '#5dade2'
         self._drag_marker = None
         self._drag_part_edge = None  # (part, 'start'/'end')
+        self._drag_start_data = None  # Для истории при drag
         self._last_playhead_x = None
         self._last_size = (0, 0)
         
@@ -121,9 +122,7 @@ class WaveformCanvas(tk.Canvas):
                 y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
                 y2 = y1 + PART_ROW_HEIGHT - 2
                 
-                if g.is_overridden:
-                    fill, outline = '#943126', '#641e16'
-                elif g.has_base and g.active_idx == 0:
+                if g.has_base and g.active_idx == 0:
                     fill, outline = '#566573', '#444'
                 elif len(g.versions) > (2 if g.has_base else 1):
                     fill, outline = '#9b59b6', '#8e44ad'
@@ -277,12 +276,24 @@ class WaveformCanvas(tk.Canvas):
         if self.is_result:
             edge = self._find_part_edge_at(e.x, e.y)
             if edge is not None:
+                part, edge_type = edge
+                # Сохраняем начальные данные для истории
+                self._drag_start_data = {
+                    "part_id": part.id,
+                    "old_start": part.start,
+                    "old_end": part.end
+                }
                 self._drag_part_edge = edge
                 return
         # Маркеры (source)
         if not self.is_result and self._in_marker_zone(e.y):
             marker_idx = self._find_marker_at(e.x)
             if marker_idx is not None:
+                # Сохраняем начальную позицию
+                self._drag_start_data = {
+                    "idx": marker_idx,
+                    "old_pos": ed.markers[marker_idx]
+                }
                 self._drag_marker = marker_idx
                 return
         ed._on_click(e, w, self.is_result)
@@ -325,33 +336,65 @@ class WaveformCanvas(tk.Canvas):
         self.editor._on_drag(e, w)
         
     def _on_release(self, e):
+        ed = self.editor
         MIN_PART_SIZE = 2000
+        
         # Завершение перетаскивания границы части
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             w = self.winfo_width()
             sample = part.start if edge_type == 'start' else part.end
-            snapped = self.editor._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True)
+            snapped = ed._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True)
             if edge_type == 'start':
                 part.start = max(0, min(snapped, part.end - MIN_PART_SIZE))
             else:
-                part.end = min(self.editor.total_samples, max(snapped, part.start + MIN_PART_SIZE))
+                part.end = min(ed.total_samples, max(snapped, part.start + MIN_PART_SIZE))
+            
+            # История
+            if ed.history and self._drag_start_data:
+                old_start = self._drag_start_data["old_start"]
+                old_end = self._drag_start_data["old_end"]
+                if part.start != old_start or part.end != old_end:
+                    ed.history.push({
+                        "type": "resize_part",
+                        "part_id": part.id,
+                        "old_start": old_start,
+                        "old_end": old_end,
+                        "new_start": part.start,
+                        "new_end": part.end
+                    })
+            
             self._drag_part_edge = None
-            self.editor._redraw()
-            self.editor._save_project()
+            self._drag_start_data = None
+            ed._redraw()
+            ed._save_project()
             return
+        
         # Маркеры
         if self._drag_marker is not None:
             w = self.winfo_width()
-            marker_sample = self.editor.markers[self._drag_marker]
-            snapped = self.editor._snap_to_points(marker_sample, w, snap_to_markers=False, snap_to_selection=True)
-            self.editor.markers[self._drag_marker] = snapped
-            self.editor.markers.sort()
+            marker_sample = ed.markers[self._drag_marker]
+            snapped = ed._snap_to_points(marker_sample, w, snap_to_markers=False, snap_to_selection=True)
+            ed.markers[self._drag_marker] = snapped
+            ed.markers.sort()
+            
+            # История
+            if ed.history and self._drag_start_data:
+                old_pos = self._drag_start_data["old_pos"]
+                if snapped != old_pos:
+                    ed.history.push({
+                        "type": "move_marker",
+                        "old_pos": old_pos,
+                        "new_pos": snapped
+                    })
+            
             self._drag_marker = None
-            self.editor._redraw()
-            self.editor._save_project()
+            self._drag_start_data = None
+            ed._redraw()
+            ed._save_project()
             return
-        self.editor._on_release(self.winfo_width())
+        
+        ed._on_release(self.winfo_width())
     
     def _on_right_click(self, e):
         w = self.winfo_width()

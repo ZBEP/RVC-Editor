@@ -50,7 +50,8 @@ TRANSLATIONS = {
     "or": {"ru": "или", "zh": "或"},
     "of": {"ru": "из", "zh": "/"},
     "successful": {"ru": "успешно", "zh": "成功"},
-    
+    "Nothing to undo": {"ru": "Нечего отменять", "zh": "没有可撤销的操作"},
+    "Nothing to redo": {"ru": "Нечего повторять", "zh": "没有可重做的操作"},
     "Default": {"ru": "По умолчанию", "zh": "默认"},
     "Minimal Index": {"ru": "Мин. индекс", "zh": "最小索引"},
     "Low Index, No Protect": {"ru": "Низкий индекс, без защиты", "zh": "低索引无保护"},
