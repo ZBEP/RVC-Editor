@@ -4,5 +4,4 @@ temp/
 __pycache__/
 Разработка/
 *.json
-*.ps1
-*.ini
+*.lnk
