@@ -15,7 +15,7 @@ A standalone GUI application for voice conversion using RVC v2 models. Built on 
 
 ## Screenshots
 
-![Editor Tab](assets/img2.png)
+![Editor Tab](assets/img1.png)
 
 ![Conversion Tab](assets/img3.png)
 
