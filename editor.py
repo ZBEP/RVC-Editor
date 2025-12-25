@@ -671,11 +671,16 @@ class EditorTab:
         data = group.get_data()
         if data is None:
             return
-        exp_len = group.end - group.start
-        if len(data) != exp_len:
-            tmp = np.zeros(exp_len, dtype=np.float32)
-            tmp[:min(len(data), exp_len)] = data[:exp_len]
-            data = tmp
+        
+        # Записываем только реальные данные (без padding нулями)
+        max_len = group.end - group.start
+        write_len = min(len(data), max_len)
+        if write_len <= 0:
+            self._redraw()
+            return
+        
+        write_data = data[:write_len]
+        write_end = group.start + write_len
         
         if preserve_nested:
             nested = self._get_nested_parts(group)
@@ -683,22 +688,23 @@ class EditorTab:
                 occupied = sorted([(n.start - group.start, n.end - group.start) for n in nested])
                 current = 0
                 for occ_start, occ_end in occupied:
-                    if current < occ_start:
-                        abs_start = group.start + current
-                        abs_end = group.start + occ_start
-                        self.result_audio[abs_start:abs_end] = data[current:occ_start]
-                        self.result_audio_display[abs_start:abs_end] = data[current:occ_start]
+                    seg_end = min(occ_start, write_len)
+                    if current < seg_end:
+                        abs_s = group.start + current
+                        abs_e = group.start + seg_end
+                        self.result_audio[abs_s:abs_e] = write_data[current:seg_end]
+                        self.result_audio_display[abs_s:abs_e] = write_data[current:seg_end]
                     current = max(current, occ_end)
-                if current < exp_len:
-                    abs_start = group.start + current
-                    self.result_audio[abs_start:group.end] = data[current:]
-                    self.result_audio_display[abs_start:group.end] = data[current:]
+                if current < write_len:
+                    abs_s = group.start + current
+                    self.result_audio[abs_s:write_end] = write_data[current:]
+                    self.result_audio_display[abs_s:write_end] = write_data[current:]
             else:
-                self.result_audio[group.start:group.end] = data
-                self.result_audio_display[group.start:group.end] = data
+                self.result_audio[group.start:write_end] = write_data
+                self.result_audio_display[group.start:write_end] = write_data
         else:
-            self.result_audio[group.start:group.end] = data
-            self.result_audio_display[group.start:group.end] = data
+            self.result_audio[group.start:write_end] = write_data
+            self.result_audio_display[group.start:write_end] = write_data
         
         self._redraw()
 
@@ -706,20 +712,21 @@ class EditorTab:
         """Найти части, полностью вложенные в данную"""
         return [g for g in self.part_groups 
                 if g.id != part.id and g.start >= part.start and g.end <= part.end]
-    
+
+    def _is_replace_all_mode(self):
+        try:
+            import ctypes
+            return ctypes.windll.user32.GetKeyState(0x14) & 1  # Caps Lock state
+        except:
+            return False
+
     def _ask_nested_action(self, part):
-        """Спрашивает о вложенных частях. Возвращает (proceed, preserve_nested)"""
+        """Caps Lock ON = заменить всё, OFF = сохранить вложенные"""
         nested = self._get_nested_parts(part)
         if not nested:
             return (True, False)
-        
-        result = messagebox.askyesnocancel(
-            tr("Confirm"),
-            tr("This part contains nested parts.\n\nYes - Replace all (overwrite nested)\nNo - Keep nested parts\nCancel - Cancel operation")
-        )
-        if result is None:
-            return (False, False)
-        return (True, not result)
+        preserve_nested = not self._is_replace_all_mode()
+        return (True, preserve_nested)
 
     def _show_part_menu(self, e, part):
         menu = tk.Menu(self.parent, tearoff=0)
@@ -753,9 +760,6 @@ class EditorTab:
         menu.tk_popup(e.x_root, e.y_root)
     
     def _set_version(self, part, idx):
-        if idx == part.active_idx:
-            return
-        
         proceed, preserve_nested = self._ask_nested_action(part)
         if not proceed:
             return
@@ -1193,7 +1197,6 @@ class EditorTab:
                 tmp_out = os.path.join(tmp_dir, "_temp_out.wav")
                 
                 # ВАЖНО: source_audio для конвертации (НЕ source_audio_display!)
-                #sf.write(tmp_in, self.source_audio[start:end].copy(), self.sr)
                 sf.write(tmp_in, self._get_source_for_convert(start, end), self.sr)
                 
                 self.parent.after(0, lambda: self.log(f"{tr('Converting')} {(end-start)/self.sr:.2f}s..."))
@@ -1216,11 +1219,10 @@ class EditorTab:
                         self.result_audio = np.zeros(self.total_samples, dtype=np.float32)
                         self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
                     
+                    # Записываем только реальные данные без padding нулями
                     exp_len = end - start
-                    if len(converted) != exp_len:
-                        tmp = np.zeros(exp_len, dtype=np.float32)
-                        tmp[:min(len(converted), exp_len)] = converted[:exp_len]
-                        converted = tmp
+                    write_len = min(len(converted), exp_len)
+                    write_data = converted[:write_len]
                     
                     group = self._find_group(start, end)
                     if group is None:
@@ -1232,8 +1234,8 @@ class EditorTab:
                             if np.any(existing != 0):
                                 group.set_base(existing)
                     
-                    self.result_audio[start:end] = converted
-                    self.result_audio_display[start:end] = converted
+                    self.result_audio[start:start + write_len] = write_data
+                    self.result_audio_display[start:start + write_len] = write_data
                     
                     version_params = {
                         "pitch": params.get("pitch", 0),
@@ -1246,7 +1248,7 @@ class EditorTab:
                         "crepe_hop_length": params.get("crepe_hop_length", 120),
                         "source_mode": self.source_mode
                     }
-                    group.add_version(converted, version_params)
+                    group.add_version(write_data, version_params)
                     
                     self._active_track = 'result'
                     

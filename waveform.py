@@ -17,6 +17,7 @@ class WaveformCanvas(tk.Canvas):
         self.is_result = is_result
         self.color = '#e74c3c' if is_result else '#5dade2'
         self._drag_marker = None
+        self._drag_part_edge = None  # (part, 'start'/'end')
         self._last_playhead_x = None
         self._last_size = (0, 0)
         
@@ -36,7 +37,7 @@ class WaveformCanvas(tk.Canvas):
         new_size = (e.width, e.height)
         if new_size != self._last_size:
             self._last_size = new_size
-            self._last_playhead_x = None  # Сбросить - высота изменилась
+            self._last_playhead_x = None
             self.delete('all')
             self._draw_static()
             self._draw_playhead()
@@ -60,7 +61,6 @@ class WaveformCanvas(tk.Canvas):
         """Перерисовка статических элементов (без мерцания playhead)"""
         self.delete('static')
         self._draw_static()
-        # Playhead не трогаем - он обновится через update_playhead
     
     def _draw_static(self):
         """Рисует waveform, выделение, маркеры, части"""
@@ -223,16 +223,42 @@ class WaveformCanvas(tk.Canvas):
                 return g
         return None
     
+    def _find_part_edge_at(self, x, y, threshold=6):
+        """Находит границу части рядом с x в зоне заголовка. Возвращает (part, 'start'/'end') или None"""
+        if not self.is_result or not self.editor.part_groups:
+            return None
+        w = self.winfo_width()
+        for g in self.editor.part_groups:
+            # Проверяем что y в зоне заголовка этой части
+            y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
+            y2 = y1 + PART_ROW_HEIGHT
+            if not (y1 <= y < y2):
+                continue
+            start_x = self.editor._s2x(g.start, w)
+            end_x = self.editor._s2x(g.end, w)
+            if abs(x - start_x) <= threshold:
+                return (g, 'start')
+            if abs(x - end_x) <= threshold:
+                return (g, 'end')
+        return None
+    
     def _on_motion(self, e):
         ed = self.editor
+        # Границы частей (result track) - только в зоне заголовка
+        if self.is_result and self._find_part_edge_at(e.x, e.y):
+            self.config(cursor='sb_h_double_arrow')
+            return
+        # Маркеры (source track)
         if not self.is_result and self._in_marker_zone(e.y):
             if self._find_marker_at(e.x) is not None:
                 self.config(cursor='sb_h_double_arrow')
                 return
+        # Части (клик)
         if self._in_parts_zone(e.y):
             if self._find_part_at(e.x, e.y) is not None:
                 self.config(cursor='hand2')
                 return
+        # Границы выделения
         if ed.sel_start is not None:
             w = self.winfo_width()
             s1, s2 = sorted([ed.sel_start, ed.sel_end])
@@ -241,6 +267,23 @@ class WaveformCanvas(tk.Canvas):
                 self.config(cursor='sb_h_double_arrow')
                 return
         self.config(cursor='')
+    
+    def _on_click(self, e):
+        ed = self.editor
+        w = self.winfo_width()
+        # Границы частей (result) - только в зоне заголовка
+        if self.is_result:
+            edge = self._find_part_edge_at(e.x, e.y)
+            if edge is not None:
+                self._drag_part_edge = edge
+                return
+        # Маркеры (source)
+        if not self.is_result and self._in_marker_zone(e.y):
+            marker_idx = self._find_marker_at(e.x)
+            if marker_idx is not None:
+                self._drag_marker = marker_idx
+                return
+        ed._on_click(e, w, self.is_result)
             
     def _on_wheel(self, e):
         if e.state & 0x4:  # Ctrl
@@ -255,21 +298,23 @@ class WaveformCanvas(tk.Canvas):
             sample = self.editor._x2s(e.x, self.winfo_width())
             self.editor._switch_version_at(sample, 1 if e.delta > 0 else -1)
         
-    def _on_click(self, e):
-        ed = self.editor
-        w = self.winfo_width()
-        if not self.is_result and self._in_marker_zone(e.y):
-            marker_idx = self._find_marker_at(e.x)
-            if marker_idx is not None:
-                self._drag_marker = marker_idx
-                return
-        ed._on_click(e, w, self.is_result)
-        
     def _on_double_click(self, e):
         self.editor._on_double_click(e, self.winfo_width(), self.is_result)
         
     def _on_drag(self, e):
         w = self.winfo_width()
+        MIN_PART_SIZE = 2000
+        # Перетаскивание границы части
+        if self._drag_part_edge is not None:
+            part, edge_type = self._drag_part_edge
+            sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
+            if edge_type == 'start':
+                part.start = max(0, min(sample, part.end - MIN_PART_SIZE))
+            else:
+                part.end = min(self.editor.total_samples, max(sample, part.start + MIN_PART_SIZE))
+            self.editor._redraw()
+            return
+        # Маркеры
         if self._drag_marker is not None:
             sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
             self.editor.markers[self._drag_marker] = sample
@@ -278,12 +323,27 @@ class WaveformCanvas(tk.Canvas):
         self.editor._on_drag(e, w)
         
     def _on_release(self, e):
+        MIN_PART_SIZE = 2000
+        # Завершение перетаскивания границы части
+        if self._drag_part_edge is not None:
+            part, edge_type = self._drag_part_edge
+            w = self.winfo_width()
+            sample = part.start if edge_type == 'start' else part.end
+            snapped = self.editor._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True)
+            if edge_type == 'start':
+                part.start = max(0, min(snapped, part.end - MIN_PART_SIZE))
+            else:
+                part.end = min(self.editor.total_samples, max(snapped, part.start + MIN_PART_SIZE))
+            self._drag_part_edge = None
+            self.editor._redraw()
+            self.editor._save_project()
+            return
+        # Маркеры
         if self._drag_marker is not None:
             w = self.winfo_width()
             marker_sample = self.editor.markers[self._drag_marker]
             snapped = self.editor._snap_to_points(marker_sample, w, snap_to_markers=False, snap_to_selection=True)
             self.editor.markers[self._drag_marker] = snapped
-            
             self.editor.markers.sort()
             self._drag_marker = None
             self.editor._redraw()
