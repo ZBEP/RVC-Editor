@@ -65,23 +65,7 @@ class EditorTab:
         self._build()
         self._scan_devices()
         
-        parent.winfo_toplevel().bind('<r>', self._hotkey_convert)
-        parent.winfo_toplevel().bind('<space>', self._hotkey_play)
-        parent.winfo_toplevel().bind('<i>', self._hotkey_marker)
-        parent.winfo_toplevel().bind('<I>', self._hotkey_marker)
-        parent.winfo_toplevel().bind('<Left>', self._hotkey_left)
-        parent.winfo_toplevel().bind('<Right>', self._hotkey_right)
-        parent.winfo_toplevel().bind('<Shift-Left>', self._hotkey_shift_left)
-        parent.winfo_toplevel().bind('<Shift-Right>', self._hotkey_shift_right)
-        parent.winfo_toplevel().bind('<Control-z>', self._hotkey_undo)
-        parent.winfo_toplevel().bind('<Control-Z>', self._hotkey_undo)
-        parent.winfo_toplevel().bind('<Control-Shift-z>', self._hotkey_redo)
-        parent.winfo_toplevel().bind('<Control-Shift-Z>', self._hotkey_redo)
-        parent.winfo_toplevel().bind('<Control-y>', self._hotkey_redo)
-        parent.winfo_toplevel().bind('<Control-Y>', self._hotkey_redo)
-
-        for i in range(10):
-            parent.winfo_toplevel().bind(f'<Key-{i}>', self._hotkey_number)
+        parent.winfo_toplevel().bind('<KeyPress>', self._on_key_press)
 
     def _init_history(self):
         """Инициализация истории для проекта"""
@@ -489,23 +473,53 @@ class EditorTab:
             part.start = op["new_start"]
             part.end = op["new_end"]
     
-    def _hotkey_undo(self, e=None):
+    def _on_key_press(self, e):
         try:
             if self.parent.master.index(self.parent.master.select()) != 0:
                 return
         except:
             pass
-        self._undo()
-        return "break"
-    
-    def _hotkey_redo(self, e=None):
-        try:
-            if self.parent.master.index(self.parent.master.select()) != 0:
-                return
-        except:
-            pass
-        self._redo()
-        return "break"
+        
+        kc = e.keycode
+        ctrl = bool(e.state & 0x4)
+        shift = bool(e.state & 0x1)
+        
+        if kc == 73 and not ctrl:  # I
+            self._hotkey_marker()
+            return "break"
+        if kc == 82 and not ctrl:  # R
+            self._convert()
+            return "break"
+        if kc == 32 and not ctrl:  # Space
+            self._toggle_play()
+            return "break"
+        if kc == 37:  # Left
+            if shift and not self._is_playing:
+                self._extend_selection(-1)
+            else:
+                self._move_cursor(-self._get_cursor_step(large=False))
+            return "break"
+        if kc == 39:  # Right
+            if shift and not self._is_playing:
+                self._extend_selection(1)
+            else:
+                self._move_cursor(self._get_cursor_step(large=False))
+            return "break"
+        if kc == 90 and ctrl:  # Z
+            (self._redo if shift else self._undo)()
+            return "break"
+        if kc == 89 and ctrl:  # Y
+            self._redo()
+            return "break"
+        if kc == 46:  # Delete
+            self._hotkey_delete()
+            return "break"
+        if 48 <= kc <= 57:  # 0-9 main
+            self._process_number_key(kc - 48)
+            return "break"
+        if 96 <= kc <= 105:  # 0-9 numpad
+            self._process_number_key(kc - 96)
+            return "break"
 
     def _to_mono(self, audio):
         if audio is None:
@@ -799,7 +813,7 @@ class EditorTab:
     def _on_zoom(self, e, width):
         if self.source_audio is None: return
         mouse_s = self._x2s(e.x, width)
-        self.zoom = max(1.0, min(200.0, self.zoom * (1.25 if e.delta > 0 else 0.8)))
+        self.zoom = max(1.0, min(2000.0, self.zoom * (1.25 if e.delta > 0 else 0.8)))
         self.offset = int(mouse_s - (self.total_samples / self.zoom) * e.x / max(1, width))
         self._clamp_offset()
         self._redraw()
@@ -896,7 +910,7 @@ class EditorTab:
         self._redraw()
         self._update_time()
 
-    def _snap_to_points(self, sample, width, snap_to_markers=True, snap_to_selection=False):
+    def _snap_to_points(self, sample, width, snap_to_markers=True, snap_to_selection=False, exclude_part=None):
         """Примагничивание к частям, маркерам и/или выделению"""
         if self.total_samples == 0 or width <= 0:
             return sample
@@ -906,7 +920,8 @@ class EditorTab:
         
         snap_points = []
         for g in self.part_groups:
-            snap_points.extend([g.start, g.end])
+            if g is not exclude_part:
+                snap_points.extend([g.start, g.end])
         
         if snap_to_markers:
             snap_points.extend(self.markers)
@@ -924,10 +939,14 @@ class EditorTab:
     
     def _get_cursor_step(self, large=False):
         """Шаг перемещения курсора стрелками"""
-        if self.total_samples == 0:
+        if self.total_samples == 0 or self.sr is None:
             return 0
-        visible = int(self.total_samples / self.zoom)
-        return max(1, visible // (20 if large else 200))
+        
+        if self._is_playing:
+            return int(self.sr * (5.0 if large else 1.0))
+        else:
+            visible = int(self.total_samples / self.zoom)
+            return max(1, visible // (20 if large else 200))
     
     def _move_cursor(self, delta):
         if self.source_audio is None:
@@ -937,6 +956,8 @@ class EditorTab:
             new_pos = max(self._play_start, min(self._play_end - 1, self._play_pos + delta))
             self._play_pos = new_pos
             self.play_pos = new_pos
+            self._update_playhead()
+            self._update_time()
         else:
             pos = self.cursor_pos if self.cursor_pos is not None else 0
             pos = max(0, min(self.total_samples - 1, pos + delta))
@@ -944,42 +965,28 @@ class EditorTab:
             self.sel_start = self.sel_end = None
             self._redraw()
             self._update_time()
-    
-    def _hotkey_left(self, e=None):
-        try:
-            if self.parent.master.index(self.parent.master.select()) != 0:
-                return
-        except:
-            pass
-        self._move_cursor(-self._get_cursor_step())
-        return "break"
-    
-    def _hotkey_right(self, e=None):
-        try:
-            if self.parent.master.index(self.parent.master.select()) != 0:
-                return
-        except:
-            pass
-        self._move_cursor(self._get_cursor_step())
-        return "break"
-    
-    def _hotkey_shift_left(self, e=None):
-        try:
-            if self.parent.master.index(self.parent.master.select()) != 0:
-                return
-        except:
-            pass
-        self._move_cursor(-self._get_cursor_step(large=True))
-        return "break"
-    
-    def _hotkey_shift_right(self, e=None):
-        try:
-            if self.parent.master.index(self.parent.master.select()) != 0:
-                return
-        except:
-            pass
-        self._move_cursor(self._get_cursor_step(large=True))
-        return "break"
+
+    def _extend_selection(self, delta):
+        """Shift+стрелка: создать или расширить выделение"""
+        if self.source_audio is None:
+            return
+        
+        step = self._get_cursor_step(large=False)
+        
+        if self.sel_start is None:
+            anchor = self.cursor_pos if self.cursor_pos is not None else 0
+            new_pos = max(0, min(self.total_samples - 1, anchor + delta * step))
+            self.sel_start, self.sel_end = min(anchor, new_pos), max(anchor, new_pos)
+        else:
+            s1, s2 = sorted([self.sel_start, self.sel_end])
+            if delta < 0:
+                s1 = max(0, s1 + delta * step)
+            else:
+                s2 = min(self.total_samples - 1, s2 + delta * step)
+            self.sel_start, self.sel_end = s1, s2
+        
+        self._redraw()
+        self._update_time()
 
     def _hotkey_delete(self, e=None):
         try:
@@ -1470,11 +1477,6 @@ class EditorTab:
         self._redraw()
     
     def _hotkey_marker(self, e=None):
-        try:
-            nb = self.parent.master
-            if nb.index(nb.select()) != 0: return
-        except: pass
-        
         if self.source_audio is None:
             return "break"
         
@@ -1771,48 +1773,34 @@ class EditorTab:
                 self._is_playing = True
                 self.play_btn.config(text="⏸")
         
-    def _hotkey_play(self, e=None):
-        try:
-            nb = self.parent.master
-            if nb.index(nb.select()) == 0:
-                self._toggle_play()
-                return "break"
-        except: pass
         
-    def _hotkey_number(self, e):
-        try:
-            nb = self.parent.master
-            if nb.index(nb.select()) != 0:
-                return
-        except:
-            pass
-        
+    def _process_number_key(self, num):
+        """Обработка цифровой клавиши для выбора версии"""
         if self.source_audio is None or not self.part_groups:
-            return "break"
+            return
         
-        num = int(e.char)
         pos = self.cursor_pos or 0
-        
         matching = [g for g in self.part_groups if g.start <= pos < g.end]
         if not matching:
-            return "break"
+            return
+        
         part = min(matching, key=lambda g: g.size())
         
         if num == 0:
             if not part.has_base:
-                return "break"
+                return
             target_idx = 0
         else:
             target_idx = num if part.has_base else num - 1
-            if target_idx >= len(part.versions) or target_idx < 0:
-                return "break"
+            if not (0 <= target_idx < len(part.versions)):
+                return
         
         if target_idx == part.active_idx:
-            return "break"
+            return
         
         proceed, preserve_nested = self._ask_nested_action(part)
         if not proceed:
-            return "break"
+            return
         
         prev_idx = part.active_idx
         part.active_idx = target_idx
@@ -1840,16 +1828,7 @@ class EditorTab:
         self._play_end = part.end
         self._is_playing = True
         self.play_btn.config(text="⏸")
-        
-        return "break"
             
-    def _hotkey_convert(self, e=None):
-        try:
-            nb = self.parent.master
-            if nb.index(nb.select()) == 0:
-                self._convert()
-                return "break"
-        except: pass
             
     def _convert(self):
         if self.source_audio is None:

@@ -343,8 +343,11 @@ class WaveformCanvas(tk.Canvas):
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             w = self.winfo_width()
-            sample = part.start if edge_type == 'start' else part.end
-            snapped = ed._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True)
+            
+            # Snap по позиции мыши, исключая саму часть
+            sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
+            snapped = ed._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True, exclude_part=part)
+            
             if edge_type == 'start':
                 part.start = max(0, min(snapped, part.end - MIN_PART_SIZE))
             else:
@@ -373,8 +376,8 @@ class WaveformCanvas(tk.Canvas):
         # Маркеры
         if self._drag_marker is not None:
             w = self.winfo_width()
-            marker_sample = ed.markers[self._drag_marker]
-            snapped = ed._snap_to_points(marker_sample, w, snap_to_markers=False, snap_to_selection=True)
+            sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
+            snapped = ed._snap_to_points(sample, w, snap_to_markers=False, snap_to_selection=True)
             ed.markers[self._drag_marker] = snapped
             ed.markers.sort()
             
