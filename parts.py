@@ -123,8 +123,11 @@ class PartGroup:
         f0 = F0_SHORT.get(params.get("f0_method", ""), "?")
         parts = [f0, f"I{fmt(params.get('index_rate', .9))}",
                  f"P{fmt(params.get('protect', .33))}", f"F{params.get('filter_radius', 3)}"]
-        if "crepe" in params.get("f0_method", ""): 
+        if "crepe" in params.get("f0_method", ""):
             parts.append(f"H{params.get('crepe_hop_length', 120)}")
+        source_mode = params.get("source_mode", "")
+        if source_mode:
+            parts.append(f"- {source_mode}")
         return " ".join(parts)
     
     def size(self):

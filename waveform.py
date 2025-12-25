@@ -30,6 +30,7 @@ class WaveformCanvas(tk.Canvas):
         self.bind('<Motion>', self._on_motion)
         self.bind('<Enter>', lambda e: self.focus_set())
         self.bind('<Leave>', lambda e: self.config(cursor=''))
+        self.bind('<Delete>', self._on_delete)
     
     def _on_configure(self, e):
         new_size = (e.width, e.height)
@@ -278,6 +279,11 @@ class WaveformCanvas(tk.Canvas):
         
     def _on_release(self, e):
         if self._drag_marker is not None:
+            w = self.winfo_width()
+            marker_sample = self.editor.markers[self._drag_marker]
+            snapped = self.editor._snap_to_points(marker_sample, w, snap_to_markers=False, snap_to_selection=True)
+            self.editor.markers[self._drag_marker] = snapped
+            
             self.editor.markers.sort()
             self._drag_marker = None
             self.editor._redraw()
@@ -298,3 +304,7 @@ class WaveformCanvas(tk.Canvas):
                 self.editor._show_part_menu(e, part)
                 return
         self.editor._switch_track_and_play(self.is_result, e.x, w)
+
+    def _on_delete(self, e=None):
+        self.editor._hotkey_delete()
+        return "break"

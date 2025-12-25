@@ -30,6 +30,9 @@ class RVCConverterGUI:
         
         self._init_variables()
         
+        os.makedirs(self.input_dir.get(), exist_ok=True)
+        os.makedirs(self.output_dir.get(), exist_ok=True)
+        
         self.converter = None
         self.is_converting = False
         self.editor = None

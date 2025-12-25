@@ -56,7 +56,7 @@ class EditorTab:
         self._play_end = 0
         self._stream_active = False
         self._is_converting = False
-        
+        self.source_mode = "F"
         self.output_device = None
         self.output_devices = []
         
@@ -79,6 +79,24 @@ class EditorTab:
         if audio is None:
             return None
         return audio.mean(axis=1).astype(np.float32) if len(audio.shape) > 1 else audio.astype(np.float32)
+    
+    def _toggle_source_mode(self):
+        if not self.is_stereo:
+            return
+        modes = ["F", "L", "R"]
+        idx = modes.index(self.source_mode) if self.source_mode in modes else 0
+        self.source_mode = modes[(idx + 1) % 3]
+        self.source_mode_btn.config(text=self.source_mode)
+        names = {"F": "Full", "L": "Left", "R": "Right"}
+        self.log(f"Source: {names[self.source_mode]}")
+    
+    def _get_source_for_convert(self, start, end):
+        data = self.source_audio[start:end].copy()
+        if not self.is_stereo or self.source_mode == "F":
+            return data
+        if self.source_mode == "L":
+            return data[:, 0]
+        return data[:, 1]  # R
     
     def _get_project_dir(self):
         if not self.source_path:
@@ -111,6 +129,7 @@ class EditorTab:
             "zoom": self.zoom,
             "offset": self.offset,
             "active_track": self._active_track,
+            "source_mode": self.source_mode,
             "parts": [g.to_dict() for g in self.part_groups]
         }
         
@@ -145,6 +164,13 @@ class EditorTab:
             self.zoom = data.get("zoom", 1.0)
             self.offset = data.get("offset", 0)
             self._active_track = data.get("active_track", "source")
+            
+            saved_mode = data.get("source_mode", "F")
+            if self.is_stereo:
+                self.source_mode = saved_mode if saved_mode in ("F", "L", "R") else "F"
+            else:
+                self.source_mode = "M"
+            self.source_mode_btn.config(text=self.source_mode)
             
             parts_dir = self._get_parts_dir()
             for p in data.get("parts", []):
@@ -316,6 +342,9 @@ class EditorTab:
         time_frame = ttk.Frame(self.parent)
         time_frame.pack(fill=tk.X, pady=(2, 0))
         
+        self.source_mode_btn = ttk.Button(time_frame, text="F", width=2, command=self._toggle_source_mode)
+        self.source_mode_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
         self.time_lbl = ttk.Label(time_frame, text="00:00.000 / 00:00.000", font=('Consolas', 9))
         self.time_lbl.pack(side=tk.LEFT)
         ttk.Label(time_frame, text=tr("Ctrl+wheel=zoom  Shift+wheel=scroll  wheel(R)=version  I=marker  2xclick=bounds"), 
@@ -435,8 +464,8 @@ class EditorTab:
         self._redraw()
         self._update_time()
 
-    def _snap_to_points(self, sample, width):
-        """Примагничивание к частям и маркерам"""
+    def _snap_to_points(self, sample, width, snap_to_markers=True, snap_to_selection=False):
+        """Примагничивание к частям, маркерам и/или выделению"""
         if self.total_samples == 0 or width <= 0:
             return sample
         
@@ -446,7 +475,12 @@ class EditorTab:
         snap_points = []
         for g in self.part_groups:
             snap_points.extend([g.start, g.end])
-        snap_points.extend(self.markers)
+        
+        if snap_to_markers:
+            snap_points.extend(self.markers)
+        
+        if snap_to_selection and self.sel_start is not None:
+            snap_points.extend([self.sel_start, self.sel_end])
         
         best, best_dist = sample, threshold + 1
         for pt in snap_points:
@@ -464,15 +498,20 @@ class EditorTab:
         return max(1, visible // (20 if large else 200))
     
     def _move_cursor(self, delta):
-        """Перемещение курсора стрелками (без snap)"""
         if self.source_audio is None:
             return
-        pos = self.cursor_pos if self.cursor_pos is not None else 0
-        pos = max(0, min(self.total_samples - 1, pos + delta))
-        self.cursor_pos = pos
-        self.sel_start = self.sel_end = None
-        self._redraw()
-        self._update_time()
+        
+        if self._is_playing:
+            new_pos = max(self._play_start, min(self._play_end - 1, self._play_pos + delta))
+            self._play_pos = new_pos
+            self.play_pos = new_pos
+        else:
+            pos = self.cursor_pos if self.cursor_pos is not None else 0
+            pos = max(0, min(self.total_samples - 1, pos + delta))
+            self.cursor_pos = pos
+            self.sel_start = self.sel_end = None
+            self._redraw()
+            self._update_time()
     
     def _hotkey_left(self, e=None):
         try:
@@ -509,7 +548,76 @@ class EditorTab:
             pass
         self._move_cursor(self._get_cursor_step(large=True))
         return "break"
+
+    def _hotkey_delete(self, e=None):
+        try:
+            nb = self.parent.master
+            if nb.index(nb.select()) != 0:
+                return
+        except:
+            pass
+        
+        if self.source_audio is None or not self.part_groups:
+            return "break"
+        
+        pos = self.cursor_pos or 0
+        matching = [g for g in self.part_groups if g.start <= pos < g.end]
+        if not matching:
+            return "break"
+        
+        part = min(matching, key=lambda g: g.size())
+        
+        if part.has_base and part.active_idx == 0:
+            return "break"
+        
+        if len(part.versions) <= 1:
+            return "break"
+        
+        end = part.end
+        
+        if not part.delete_current():
+            return "break"
+        
+        if part.has_base and len(part.versions) == 1:
+            base_data = part.get_base_data()
+            if base_data is not None:
+                exp_len = part.end - part.start
+                if len(base_data) != exp_len:
+                    tmp = np.zeros(exp_len, dtype=np.float32)
+                    tmp[:min(len(base_data), exp_len)] = base_data[:exp_len]
+                    base_data = tmp
+                self.result_audio[part.start:part.end] = base_data
+                self.result_audio_display[part.start:part.end] = base_data
+            
+            part.cleanup()
+            self.part_groups.remove(part)
+            self._save_project()
+            self.log(tr("Part deleted, data restored"))
+            self._redraw()
+            self._play_after_action(pos, end)
+            return "break"
+        
+        self._apply_version(part)
+        self._save_project()
+        label = part.version_label(part.active_idx)
+        params_str = part.format_params(part.active_idx)
+        self.log(f"{tr('Version deleted')} → {label}: {params_str}" if params_str else f"{tr('Version deleted')} → {label}")
+        self._redraw()
+        self._play_after_action(pos, end)
+        
+        return "break"
     
+    def _play_after_action(self, pos, end):
+        self._active_track = 'result'
+        self._update_active_label()
+        if not self._stream_active:
+            self._init_stream()
+        self._play_pos = self._play_start = pos
+        self._play_end = end
+        self._is_playing = True
+        self.play_btn.config(text="⏸")
+
+
     def _find_group(self, start, end):
         for g in self.part_groups:
             if g.start == start and g.end == end:
@@ -526,9 +634,18 @@ class EditorTab:
             self._switch_version_and_play(g, delta)
     
     def _switch_version_and_play(self, part, delta):
-        if not part.switch(delta):
+        if len(part.versions) <= 1:
             return
-        self._apply_version(part)
+        new_idx = (part.active_idx + delta) % len(part.versions)
+        if new_idx == part.active_idx:
+            return
+        
+        proceed, preserve_nested = self._ask_nested_action(part)
+        if not proceed:
+            return
+        
+        part.active_idx = new_idx
+        self._apply_version(part, preserve_nested)
         self._save_project()
         
         params_str = part.format_params(part.active_idx)
@@ -550,18 +667,60 @@ class EditorTab:
         self._is_playing = True
         self.play_btn.config(text="⏸")
     
-    def _apply_version(self, group):
+    def _apply_version(self, group, preserve_nested=False):
         data = group.get_data()
-        if data is None: return
+        if data is None:
+            return
         exp_len = group.end - group.start
         if len(data) != exp_len:
             tmp = np.zeros(exp_len, dtype=np.float32)
             tmp[:min(len(data), exp_len)] = data[:exp_len]
             data = tmp
-        self.result_audio[group.start:group.end] = data
-        self.result_audio_display[group.start:group.end] = data
+        
+        if preserve_nested:
+            nested = self._get_nested_parts(group)
+            if nested:
+                occupied = sorted([(n.start - group.start, n.end - group.start) for n in nested])
+                current = 0
+                for occ_start, occ_end in occupied:
+                    if current < occ_start:
+                        abs_start = group.start + current
+                        abs_end = group.start + occ_start
+                        self.result_audio[abs_start:abs_end] = data[current:occ_start]
+                        self.result_audio_display[abs_start:abs_end] = data[current:occ_start]
+                    current = max(current, occ_end)
+                if current < exp_len:
+                    abs_start = group.start + current
+                    self.result_audio[abs_start:group.end] = data[current:]
+                    self.result_audio_display[abs_start:group.end] = data[current:]
+            else:
+                self.result_audio[group.start:group.end] = data
+                self.result_audio_display[group.start:group.end] = data
+        else:
+            self.result_audio[group.start:group.end] = data
+            self.result_audio_display[group.start:group.end] = data
+        
         self._redraw()
+
+    def _get_nested_parts(self, part):
+        """Найти части, полностью вложенные в данную"""
+        return [g for g in self.part_groups 
+                if g.id != part.id and g.start >= part.start and g.end <= part.end]
     
+    def _ask_nested_action(self, part):
+        """Спрашивает о вложенных частях. Возвращает (proceed, preserve_nested)"""
+        nested = self._get_nested_parts(part)
+        if not nested:
+            return (True, False)
+        
+        result = messagebox.askyesnocancel(
+            tr("Confirm"),
+            tr("This part contains nested parts.\n\nYes - Replace all (overwrite nested)\nNo - Keep nested parts\nCancel - Cancel operation")
+        )
+        if result is None:
+            return (False, False)
+        return (True, not result)
+
     def _show_part_menu(self, e, part):
         menu = tk.Menu(self.parent, tearoff=0)
         
@@ -594,8 +753,15 @@ class EditorTab:
         menu.tk_popup(e.x_root, e.y_root)
     
     def _set_version(self, part, idx):
+        if idx == part.active_idx:
+            return
+        
+        proceed, preserve_nested = self._ask_nested_action(part)
+        if not proceed:
+            return
+        
         part.active_idx = idx
-        self._apply_version(part)
+        self._apply_version(part, preserve_nested)
         self._save_project()
         label = part.version_label(idx)
         params_str = part.format_params(idx)
@@ -736,11 +902,15 @@ class EditorTab:
         self.result_wf.update_playhead()
         
     def _update_time(self):
-        if not self.sr: return
+        if not self.sr:
+            return
         def fmt(s): 
             sec = s / self.sr
             return f"{int(sec // 60):02d}:{sec % 60:06.3f}"
-        self.time_lbl.config(text=f"{fmt(self.cursor_pos or 0)} / {fmt(self.total_samples)}")
+        
+        current_pos = self._play_pos if self._is_playing else (self.cursor_pos or 0)
+        self.time_lbl.config(text=f"{fmt(current_pos)} / {fmt(self.total_samples)}")
+        
         if self.sel_start is not None:
             s1, s2 = sorted([self.sel_start, self.sel_end])
             self.sel_lbl.config(text=f"{tr('Selected:')} {(s2-s1)/self.sr:.2f}s")
@@ -767,6 +937,9 @@ class EditorTab:
             self.source_audio = data.astype(np.float32)
             self.is_stereo = len(data.shape) > 1
             self.source_audio_display = self._to_mono(data)
+            
+            self.source_mode = "M" if not self.is_stereo else "F"
+            self.source_mode_btn.config(text=self.source_mode)
             
             self.source_path = path
             self.sr = sr
@@ -831,7 +1004,8 @@ class EditorTab:
     
     def _init_stream(self):
         self._stop_stream()
-        if self.sr is None: return
+        if self.sr is None:
+            return
         try:
             import sounddevice as sd
             
@@ -862,6 +1036,7 @@ class EditorTab:
                 while self._stream_active:
                     if self._is_playing:
                         self.parent.after_idle(self._update_playhead)
+                        self.parent.after_idle(self._update_time)
                         self.parent.after_idle(self._sync_play_button)
                     interval = 0.05 / max(1, self.zoom ** 0.5)
                     interval = max(0.012, min(0.05, interval))
@@ -921,8 +1096,10 @@ class EditorTab:
     def _hotkey_number(self, e):
         try:
             nb = self.parent.master
-            if nb.index(nb.select()) != 0: return
-        except: pass
+            if nb.index(nb.select()) != 0:
+                return
+        except:
+            pass
         
         if self.source_audio is None or not self.part_groups:
             return "break"
@@ -938,14 +1115,21 @@ class EditorTab:
         if num == 0:
             if not part.has_base:
                 return "break"
-            part.active_idx = 0
+            target_idx = 0
         else:
             target_idx = num if part.has_base else num - 1
             if target_idx >= len(part.versions) or target_idx < 0:
                 return "break"
-            part.active_idx = target_idx
         
-        self._apply_version(part)
+        if target_idx == part.active_idx:
+            return "break"
+        
+        proceed, preserve_nested = self._ask_nested_action(part)
+        if not proceed:
+            return "break"
+        
+        part.active_idx = target_idx
+        self._apply_version(part, preserve_nested)
         self._save_project()
         self._active_track = 'result'
         self._update_active_label()
@@ -1009,7 +1193,8 @@ class EditorTab:
                 tmp_out = os.path.join(tmp_dir, "_temp_out.wav")
                 
                 # ВАЖНО: source_audio для конвертации (НЕ source_audio_display!)
-                sf.write(tmp_in, self.source_audio[start:end].copy(), self.sr)
+                #sf.write(tmp_in, self.source_audio[start:end].copy(), self.sr)
+                sf.write(tmp_in, self._get_source_for_convert(start, end), self.sr)
                 
                 self.parent.after(0, lambda: self.log(f"{tr('Converting')} {(end-start)/self.sr:.2f}s..."))
                 self.set_progress(30, tr("Conversion..."))
@@ -1058,7 +1243,8 @@ class EditorTab:
                         "resample_sr": params.get("resample_sr", 0),
                         "rms_mix_rate": params.get("rms_mix_rate", 0.25),
                         "protect": params.get("protect", 0.33),
-                        "crepe_hop_length": params.get("crepe_hop_length", 120)
+                        "crepe_hop_length": params.get("crepe_hop_length", 120),
+                        "source_mode": self.source_mode
                     }
                     group.add_version(converted, version_params)
                     

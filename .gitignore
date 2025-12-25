@@ -4,4 +4,5 @@ temp/
 __pycache__/
 Разработка/
 *.json
-copy_py_text.bat
+*.ps1
+*.ini

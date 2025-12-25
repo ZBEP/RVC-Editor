@@ -58,7 +58,12 @@ TRANSLATIONS = {
     "Medium": {"ru": "Средний", "zh": "中等"},
     "High Index, No Protect": {"ru": "Высокий индекс, без защиты", "zh": "高索引无保护"},
     "High Index, Max Protect": {"ru": "Высокий индекс, макс. защита", "zh": "高索引最大保护"},
-    
+
+    "This part contains nested parts.\n\nYes - Replace all (overwrite nested)\nNo - Keep nested parts\nCancel - Cancel operation": {
+        "ru": "Часть содержит вложенные фрагменты.\n\nДа — Заменить всё (затереть вложенные)\nНет — Сохранить вложенные части\nОтмена — Отменить",
+        "zh": "此片段包含嵌套片段。\n\n是 - 替换全部（覆盖嵌套）\n否 - 保留嵌套片段\n取消 - 取消"
+    },
+
     "Initializing RVC...": {"ru": "Инициализация RVC...", "zh": "正在初始化RVC..."},
     "Loading configuration...": {"ru": "Загрузка конфигурации...", "zh": "加载配置..."},
     "Loading VC module...": {"ru": "Загрузка VC модуля...", "zh": "加载VC模块..."},
