@@ -339,60 +339,47 @@ class WaveformCanvas(tk.Canvas):
         ed = self.editor
         MIN_PART_SIZE = 2000
         
-        # Завершение перетаскивания границы части
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             w = self.winfo_width()
             
-            # Snap по позиции мыши, исключая саму часть
             sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
             snapped = ed._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True, exclude_part=part)
             
             if edge_type == 'start':
-                part.start = max(0, min(snapped, part.end - MIN_PART_SIZE))
+                new_start = max(0, min(snapped, part.end - MIN_PART_SIZE))
+                changed = part.start != new_start
+                part.start = new_start
             else:
-                part.end = min(ed.total_samples, max(snapped, part.start + MIN_PART_SIZE))
-            
-            # История
-            if ed.history and self._drag_start_data:
-                old_start = self._drag_start_data["old_start"]
-                old_end = self._drag_start_data["old_end"]
-                if part.start != old_start or part.end != old_end:
-                    ed.history.push({
-                        "type": "resize_part",
-                        "part_id": part.id,
-                        "old_start": old_start,
-                        "old_end": old_end,
-                        "new_start": part.start,
-                        "new_end": part.end
-                    })
+                new_end = min(ed.total_samples, max(snapped, part.start + MIN_PART_SIZE))
+                changed = part.end != new_end
+                part.end = new_end
             
             self._drag_part_edge = None
             self._drag_start_data = None
+            
+            if changed:
+                ed._push_snapshot()
             ed._redraw()
             ed._save_project()
             return
         
-        # Маркеры
         if self._drag_marker is not None:
             w = self.winfo_width()
             sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
             snapped = ed._snap_to_points(sample, w, snap_to_markers=False, snap_to_selection=True)
+            
+            old_pos = ed.markers[self._drag_marker]
+            changed = snapped != old_pos
+            
             ed.markers[self._drag_marker] = snapped
             ed.markers.sort()
             
-            # История
-            if ed.history and self._drag_start_data:
-                old_pos = self._drag_start_data["old_pos"]
-                if snapped != old_pos:
-                    ed.history.push({
-                        "type": "move_marker",
-                        "old_pos": old_pos,
-                        "new_pos": snapped
-                    })
-            
             self._drag_marker = None
             self._drag_start_data = None
+            
+            if changed:
+                ed._push_snapshot()
             ed._redraw()
             ed._save_project()
             return
