@@ -528,16 +528,14 @@ class EditorTab:
             return None
         return audio.mean(axis=1).astype(np.float32) if len(audio.shape) > 1 else audio.astype(np.float32)
     
-    def _get_blend_label(self):
-        if self.blend_mode == 0:
-            return f"Blend: {tr('Hard')}"
-        return f"Blend: {tr('Smooth')} {self.blend_mode}{tr('ms')}"
+    def _set_blend(self, value):
+        self.blend_mode = value
+        self._update_blend_buttons()
+        self.log(f"Blend: {value} {tr('ms')}")
     
-    def _toggle_blend(self):
-        idx = BLEND_VALUES.index(self.blend_mode) if self.blend_mode in BLEND_VALUES else 0
-        self.blend_mode = BLEND_VALUES[(idx + 1) % len(BLEND_VALUES)]
-        self.blend_btn.config(text=self._get_blend_label())
-        self.log(f"Blend: {self._get_blend_label()}")
+    def _update_blend_buttons(self):
+        for val, btn in self.blend_btns.items():
+            btn.state(['pressed'] if val == self.blend_mode else ['!pressed'])
     
     def _write_audio(self, data, start, fade_ms=0):
         """Записать аудио в result с опциональным crossfade на границах"""
@@ -814,15 +812,11 @@ class EditorTab:
         self.play_btn.pack(side=tk.LEFT)
         
         self.active_lbl = ttk.Label(ctrl, text=f"[{tr('Source')}]", foreground='#5dade2', 
-                                     font=('Segoe UI', 9, 'bold'), width=8)
+                                     font=('Segoe UI', 9, 'bold'))
         self.active_lbl.pack(side=tk.LEFT, padx=5)
-        
         ttk.Separator(ctrl, orient='vertical').pack(side=tk.LEFT, fill=tk.Y, padx=6)
         
-        self.blend_btn = ttk.Button(ctrl, text=self._get_blend_label(), width=20, command=self._toggle_blend)
-        self.blend_btn.pack(side=tk.LEFT, padx=(0, 10))
-        
-        self.preset_lbl = ttk.Label(ctrl, text="", foreground='#aaa', font=('Consolas', 8))
+        self.preset_lbl = ttk.Label(ctrl, text="", foreground='#888')
         self.preset_lbl.pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Button(ctrl, text=tr("Run"), command=self._convert).pack(side=tk.RIGHT)
@@ -852,10 +846,19 @@ class EditorTab:
         
         self.time_lbl = ttk.Label(time_frame, text="00:00.000 / 00:00.000", font=('Consolas', 9))
         self.time_lbl.pack(side=tk.LEFT)
-        ttk.Label(time_frame, text=tr("Ctrl+wheel=zoom  Shift+wheel=scroll  wheel(R)=version  I=marker  2xclick=bounds"), 
-                  foreground='gray', font=('Segoe UI', 8)).pack(side=tk.LEFT, padx=15)
+        #ttk.Label(time_frame, text=tr("Ctrl+wheel=zoom  Shift+wheel=scroll  wheel(R)=version  I=marker  2xclick=bounds"), foreground='gray', font=('Segoe UI', 8)).pack(side=tk.LEFT, padx=15)
+
+        ttk.Label(time_frame, text=tr("ms"), foreground='#888').pack(side=tk.RIGHT)
+        self.blend_btns = {}
+        for val in reversed(BLEND_VALUES):
+            btn = ttk.Button(time_frame, text=str(val), width=3, command=lambda v=val: self._set_blend(v))
+            btn.pack(side=tk.RIGHT, padx=1)
+            self.blend_btns[val] = btn
+        ttk.Label(time_frame, text="Blend:", foreground='#888').pack(side=tk.RIGHT, padx=(10, 2))
+        self._update_blend_buttons()
+        
         self.sel_lbl = ttk.Label(time_frame, text="", foreground='gray', font=('Consolas', 9))
-        self.sel_lbl.pack(side=tk.RIGHT)
+        self.sel_lbl.pack(side=tk.RIGHT)        
         
     def _s2x(self, sample, width):
         if self.total_samples == 0: return 0
