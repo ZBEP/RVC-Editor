@@ -2002,7 +2002,6 @@ class EditorTab:
                 tmp_in = os.path.join(tmp_dir, "_temp_in.wav")
                 tmp_out = os.path.join(tmp_dir, "_temp_out.wav")
                 
-                # ВАЖНО: source_audio для конвертации (НЕ source_audio_display!)
                 sf.write(tmp_in, self._get_source_for_convert(start, end), self.sr)
                 
                 self.parent.after(0, lambda: self.log(f"{tr('Converting')} {(end-start)/self.sr:.2f}s..."))
@@ -2019,14 +2018,12 @@ class EditorTab:
                     if len(converted.shape) > 1:
                         converted = converted.mean(axis=1).astype(np.float32)
                     
-                    # Записываем только реальные данные без padding нулями
                     exp_len = end - start
                     write_len = min(len(converted), exp_len)
                     write_data = converted[:write_len]
                     
                     first_convert = self.result_audio is None
                     
-                    # Сохраняем предыдущий chunk для undo
                     prev_chunk = None
                     if self.result_audio is not None and self.history:
                         prev_chunk = self.result_audio[start:end].copy()
@@ -2051,7 +2048,29 @@ class EditorTab:
                         group = existing_group
                         prev_active_idx = group.active_idx
                     
-                    self._write_audio(write_data, start, fade_ms=self.blend_mode)
+                    preserve_nested = not self._is_replace_all_mode()
+                    nested = self._get_nested_parts(group) if preserve_nested else []
+                    
+                    if nested:
+                        occupied = sorted([(n.start, n.end) for n in nested])
+                        segments = []
+                        current = start
+                        
+                        for occ_start, occ_end in occupied:
+                            if current < occ_start:
+                                segments.append((current, min(occ_start, start + write_len)))
+                            current = max(current, occ_end)
+                        
+                        if current < start + write_len:
+                            segments.append((current, start + write_len))
+                        
+                        for seg_start, seg_end in segments:
+                            rel_start = seg_start - start
+                            rel_end = seg_end - start
+                            if rel_end > rel_start:
+                                self._write_audio(write_data[rel_start:rel_end], seg_start, fade_ms=self.blend_mode)
+                    else:
+                        self._write_audio(write_data, start, fade_ms=self.blend_mode)
                     
                     version_params = {
                         "pitch": params.get("pitch", 0),
@@ -2067,11 +2086,8 @@ class EditorTab:
                     group.add_version(write_data, version_params)
                     version_path = group.versions[-1]
                     
-                    # История
                     if self.history:
                         chunk_path = self.history.save_chunk(prev_chunk, f"chunk_{group.id}") if prev_chunk is not None else None
-                        
-                        # Копируем версию в trash для возможного redo после undo
                         trash_path = self.history.copy_to_trash(version_path)
                         base_trash = None
                         if was_new and group.has_base and len(group.versions) > 0:
