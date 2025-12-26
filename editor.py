@@ -85,27 +85,17 @@ class EditorTab:
         return None
     
     def _rebuild_result_from_parts(self):
-        """Пересобрать result_audio из активных версий всех частей"""
         if self.source_audio is None or self.total_samples == 0:
             return
         
-        # Инициализируем нулями
         self.result_audio = np.zeros(self.total_samples, dtype=np.float32)
         self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
         
-        # Сортируем части по уровню (нижние перезаписываются верхними)
         self._assign_levels()
         sorted_parts = sorted(self.part_groups, key=lambda p: p.level)
         
         for part in sorted_parts:
-            data = part.get_data()
-            if data is None:
-                continue
-            exp_len = part.end - part.start
-            write_len = min(len(data), exp_len)
-            if write_len > 0:
-                self.result_audio[part.start:part.start + write_len] = data[:write_len]
-                self.result_audio_display[part.start:part.start + write_len] = data[:write_len]
+            self._apply_version(part, part.last_preserve, part.last_blend, update_state=False)
     
     def _undo(self):
         """Отменить последнее действие"""
@@ -203,42 +193,31 @@ class EditorTab:
         part = self._find_part_by_id(op["part_id"])
         
         if op.get("was_new") and part:
-            # Удаляем всю часть
             part.cleanup()
             if part in self.part_groups:
                 self.part_groups.remove(part)
-        elif part and len(part.versions) > 0:
-            # Удаляем последнюю версию (перемещаем в trash уже сделано при push)
+        elif part:
             ver_path = op.get("version_path")
-            if ver_path in part.versions:
+            if ver_path and ver_path in part.versions:
                 idx = part.versions.index(ver_path)
                 part.versions.pop(idx)
                 part.version_params.pop(idx)
             part.active_idx = op.get("prev_active_idx", 0)
-            part.active_idx = min(part.active_idx, len(part.versions) - 1)
+            part.active_idx = min(part.active_idx, max(0, len(part.versions) - 1))
+            part.last_blend = op.get("prev_blend", 0)
+            part.last_preserve = op.get("prev_preserve", True)
             if len(part.versions) == 0:
                 if part in self.part_groups:
                     self.part_groups.remove(part)
         
-        # Восстанавливаем chunk
-        chunk = self.history.load_chunk(op.get("chunk_path"))
-        if chunk is not None and self.result_audio is not None:
-            start, end = op["start"], op["end"]
-            write_len = min(len(chunk), end - start)
-            self.result_audio[start:start + write_len] = chunk[:write_len]
-            self.result_audio_display[start:start + write_len] = chunk[:write_len]
-        elif part:
-            self._apply_version(part)
+        self._rebuild_result_from_parts()
     
     def _redo_convert(self, op):
-        # Восстанавливаем версию из trash
         trash_path = op.get("trash_path")
         ver_path = op.get("version_path")
-        
         part = self._find_part_by_id(op["part_id"])
         
         if op.get("was_new"):
-            # Создаём часть заново
             from parts import PartGroup
             part = PartGroup(op["start"], op["end"], self._get_parts_dir(), self.sr)
             part.id = op["part_id"]
@@ -251,7 +230,6 @@ class EditorTab:
                 part.version_params.append(None)
                 part.has_base = True
         
-        # Восстанавливаем версию
         if trash_path and ver_path:
             self.history.restore_from_trash(trash_path, ver_path)
             if part and ver_path not in part.versions:
@@ -260,19 +238,25 @@ class EditorTab:
         
         if part:
             part.active_idx = len(part.versions) - 1
-            self._apply_version(part)
+            part.last_blend = op.get("new_blend", 0)
+            part.last_preserve = op.get("new_preserve", True)
+            self._apply_version(part, part.last_preserve, part.last_blend, update_state=False)
     
     def _undo_switch(self, op):
         part = self._find_part_by_id(op["part_id"])
         if part:
             part.active_idx = op["prev_idx"]
-            self._apply_version(part)
-    
+            part.last_blend = op.get("prev_blend", 0)
+            part.last_preserve = op.get("prev_preserve", True)
+            self._apply_version(part, part.last_preserve, part.last_blend, update_state=False)
+
     def _redo_switch(self, op):
         part = self._find_part_by_id(op["part_id"])
         if part:
             part.active_idx = op["new_idx"]
-            self._apply_version(part)
+            part.last_blend = op.get("new_blend", 0)
+            part.last_preserve = op.get("new_preserve", True)
+            self._apply_version(part, part.last_preserve, part.last_blend, update_state=False)
     
     def _undo_delete_version(self, op):
         part = self._find_part_by_id(op["part_id"])
@@ -289,7 +273,7 @@ class EditorTab:
             part.version_params.insert(idx, op.get("params"))
         
         part.active_idx = op.get("prev_active_idx", 0)
-        self._apply_version(part)
+        self._rebuild_result_from_parts()
     
     def _redo_delete_version(self, op):
         part = self._find_part_by_id(op["part_id"])
@@ -302,16 +286,14 @@ class EditorTab:
             part.version_params.pop(idx)
             self.history.move_to_trash(path)
         
-        part.active_idx = min(op.get("new_active_idx", 0), len(part.versions) - 1)
-        if len(part.versions) > 0:
-            self._apply_version(part)
+        part.active_idx = min(op.get("new_active_idx", 0), max(0, len(part.versions) - 1))
+        self._rebuild_result_from_parts()
     
     def _undo_delete_others(self, op):
         part = self._find_part_by_id(op["part_id"])
         if not part:
             return
         
-        # Восстанавливаем удалённые версии
         for item in op.get("deleted", []):
             trash_path = item.get("trash_path")
             orig_path = item.get("orig_path")
@@ -325,7 +307,7 @@ class EditorTab:
         
         part.active_idx = op.get("prev_active_idx", 0)
         part.has_base = op.get("had_base", False)
-        self._apply_version(part)
+        self._rebuild_result_from_parts()
     
     def _redo_delete_others(self, op):
         part = self._find_part_by_id(op["part_id"])
@@ -336,7 +318,6 @@ class EditorTab:
         kept_path = part.versions[kept_idx] if kept_idx < len(part.versions) else None
         kept_params = part.version_params[kept_idx] if kept_idx < len(part.version_params) else None
         
-        # Удаляем все кроме kept
         for i, path in enumerate(part.versions):
             if i != kept_idx:
                 self.history.move_to_trash(path)
@@ -345,9 +326,7 @@ class EditorTab:
         part.version_params = [kept_params] if kept_path else []
         part.active_idx = 0
         part.has_base = False
-        
-        if len(part.versions) > 0:
-            self._apply_version(part)
+        self._rebuild_result_from_parts()
     
     def _undo_delete_part(self, op):
         from parts import PartGroup
@@ -356,8 +335,9 @@ class EditorTab:
         part.id = op["part_id"]
         part.has_base = op.get("had_base", False)
         part.active_idx = op.get("active_idx", 0)
+        part.last_blend = op.get("last_blend", 0)
+        part.last_preserve = op.get("last_preserve", True)
         
-        # Восстанавливаем версии
         for item in op.get("versions", []):
             trash_path = item.get("trash_path")
             orig_path = item.get("orig_path")
@@ -367,37 +347,31 @@ class EditorTab:
                 part.version_params.append(item.get("params"))
         
         self.part_groups.append(part)
-        self._apply_version(part)
+        self._rebuild_result_from_parts()
     
     def _redo_delete_part(self, op):
         part = self._find_part_by_id(op["part_id"])
         if not part:
             return
         
-        # Восстанавливаем base chunk если был
-        chunk = self.history.load_chunk(op.get("base_chunk_path"))
-        if chunk is not None and self.result_audio is not None:
-            start, end = op["start"], op["end"]
-            write_len = min(len(chunk), end - start)
-            self.result_audio[start:start + write_len] = chunk[:write_len]
-            self.result_audio_display[start:start + write_len] = chunk[:write_len]
-        
-        # Перемещаем файлы в trash
         for path in part.versions:
             self.history.move_to_trash(path)
         
         if part in self.part_groups:
             self.part_groups.remove(part)
+        
+        self._rebuild_result_from_parts()
     
     def _undo_flatten(self, op):
         from parts import PartGroup
         
-        # Восстанавливаем все части
         for pdata in op.get("parts", []):
             part = PartGroup(pdata["start"], pdata["end"], self._get_parts_dir(), self.sr)
             part.id = pdata["id"]
             part.has_base = pdata.get("has_base", False)
             part.active_idx = pdata.get("active_idx", 0)
+            part.last_blend = pdata.get("last_blend", 0)
+            part.last_preserve = pdata.get("last_preserve", True)
             
             for item in pdata.get("versions", []):
                 trash_path = item.get("trash_path")
@@ -416,6 +390,7 @@ class EditorTab:
             for path in part.versions:
                 self.history.move_to_trash(path)
         self.part_groups.clear()
+        self._rebuild_result_from_parts()
     
     def _undo_add_marker(self, op):
         sample = op.get("sample")
@@ -684,6 +659,8 @@ class EditorTab:
                 g.has_base = p["has_base"]
                 g.versions = versions
                 g.version_params = p.get("version_params", [None] * len(versions))
+                g.last_blend = p.get("last_blend", 0)
+                g.last_preserve = p.get("last_preserve", True)
                 while len(g.version_params) < len(versions):
                     g.version_params.append(None)
                 self.part_groups.append(g)
@@ -1188,7 +1165,10 @@ class EditorTab:
             return
         
         prev_idx = part.active_idx
+        prev_blend = part.last_blend
+        prev_preserve = part.last_preserve
         changed = prev_idx != new_idx
+        
         part.active_idx = new_idx
         self._apply_version(part, preserve_nested)
         self._save_project()
@@ -1198,7 +1178,11 @@ class EditorTab:
                 "type": "switch",
                 "part_id": part.id,
                 "prev_idx": prev_idx,
-                "new_idx": new_idx
+                "new_idx": new_idx,
+                "prev_blend": prev_blend,
+                "new_blend": self.blend_mode,
+                "prev_preserve": prev_preserve,
+                "new_preserve": preserve_nested
             })
         
         label = part.version_label(part.active_idx)
@@ -1220,10 +1204,16 @@ class EditorTab:
         self._is_playing = True
         self.play_btn.config(text="⏸")
     
-    def _apply_version(self, group, preserve_nested=False):
+    def _apply_version(self, group, preserve_nested=False, blend_override=None, update_state=True):
         data = group.get_data()
         if data is None:
             return
+        
+        blend = blend_override if blend_override is not None else self.blend_mode
+        
+        if update_state:
+            group.last_blend = blend
+            group.last_preserve = preserve_nested
         
         max_len = group.end - group.start
         write_len = min(len(data), max_len)
@@ -1234,11 +1224,8 @@ class EditorTab:
         write_data = data[:write_len]
         write_end = group.start + write_len
         
-        # Определяем нужен ли crossfade
         is_base = group.has_base and group.active_idx == 0
-        use_fade = self.blend_mode if (self.blend_mode > 0 and not is_base and group.has_base) else 0
-        
-        # Получаем данные базы если нужен crossfade
+        use_fade = blend if (blend > 0 and not is_base and group.has_base) else 0
         base_data = group.get_base_data() if use_fade > 0 else None
         
         if preserve_nested:
@@ -1261,14 +1248,12 @@ class EditorTab:
                     seg_data = write_data[d_s:d_e]
                     
                     if use_fade > 0 and base_data is not None:
-                        # Сначала записываем базу (без crossfade)
                         base_seg = base_data[d_s:d_e] if d_e <= len(base_data) else base_data[d_s:]
                         seg_len = min(len(base_seg), abs_e - abs_s)
                         if seg_len > 0:
                             self.result_audio[abs_s:abs_s + seg_len] = base_seg[:seg_len]
                             self.result_audio_display[abs_s:abs_s + seg_len] = base_seg[:seg_len]
                         
-                        # Затем версию с crossfade на внешних границах
                         is_first = (i == 0)
                         is_last = (i == len(segments) - 1)
                         if is_first or is_last:
@@ -1392,7 +1377,10 @@ class EditorTab:
             return
         
         prev_idx = part.active_idx
+        prev_blend = part.last_blend
+        prev_preserve = part.last_preserve
         changed = prev_idx != idx
+        
         part.active_idx = idx
         self._apply_version(part, preserve_nested)
         self._save_project()
@@ -1402,7 +1390,11 @@ class EditorTab:
                 "type": "switch",
                 "part_id": part.id,
                 "prev_idx": prev_idx,
-                "new_idx": idx
+                "new_idx": idx,
+                "prev_blend": prev_blend,
+                "new_blend": self.blend_mode,
+                "prev_preserve": prev_preserve,
+                "new_preserve": preserve_nested
             })
         
         label = part.version_label(idx)
@@ -1499,7 +1491,6 @@ class EditorTab:
         self._redraw()
     
     def _delete_part(self, part):
-        # Сохраняем данные для истории
         versions_data = []
         for i, path in enumerate(part.versions):
             trash_path = None
@@ -1518,14 +1509,6 @@ class EditorTab:
                 "params": params
             })
         
-        # Сохраняем base chunk для восстановления при redo
-        base_chunk_path = None
-        if part.has_base and self.history:
-            base_data = part.get_base_data()
-            if base_data is not None:
-                base_chunk_path = self.history.save_chunk(base_data, f"base_{part.id}")
-        
-        # Восстанавливаем base в result
         if part.has_base:
             base_data = part.get_base_data()
             if base_data is not None:
@@ -1536,6 +1519,13 @@ class EditorTab:
                     base_data = tmp
                 self.result_audio[part.start:part.end] = base_data
                 self.result_audio_display[part.start:part.end] = base_data
+        
+        part_id = part.id
+        had_base = part.has_base
+        active_idx = part.active_idx
+        last_blend = part.last_blend
+        last_preserve = part.last_preserve
+        start, end = part.start, part.end
         
         part.versions = []
         part.version_params = []
@@ -1548,13 +1538,14 @@ class EditorTab:
         if self.history:
             self.history.push({
                 "type": "delete_part",
-                "part_id": part.id,
-                "start": part.start,
-                "end": part.end,
-                "had_base": part.has_base,
-                "active_idx": part.active_idx,
-                "versions": versions_data,
-                "base_chunk_path": base_chunk_path
+                "part_id": part_id,
+                "start": start,
+                "end": end,
+                "had_base": had_base,
+                "active_idx": active_idx,
+                "last_blend": last_blend,
+                "last_preserve": last_preserve,
+                "versions": versions_data
             })
         
         self.log(tr("Part deleted, data restored"))
@@ -1597,6 +1588,8 @@ class EditorTab:
                 "end": part.end,
                 "has_base": part.has_base,
                 "active_idx": part.active_idx,
+                "last_blend": part.last_blend,
+                "last_preserve": part.last_preserve,
                 "versions": versions_data
             })
         
@@ -1911,7 +1904,6 @@ class EditorTab:
         
         
     def _process_number_key(self, num):
-        """Обработка цифровой клавиши для выбора версии"""
         if self.source_audio is None or not self.part_groups:
             return
         
@@ -1936,7 +1928,10 @@ class EditorTab:
             return
         
         prev_idx = part.active_idx
+        prev_blend = part.last_blend
+        prev_preserve = part.last_preserve
         changed = prev_idx != target_idx
+        
         part.active_idx = target_idx
         self._apply_version(part, preserve_nested)
         self._save_project()
@@ -1946,7 +1941,11 @@ class EditorTab:
                 "type": "switch",
                 "part_id": part.id,
                 "prev_idx": prev_idx,
-                "new_idx": target_idx
+                "new_idx": target_idx,
+                "prev_blend": prev_blend,
+                "new_blend": self.blend_mode,
+                "prev_preserve": prev_preserve,
+                "new_preserve": preserve_nested
             })
         
         self._active_track = 'result'
@@ -2087,7 +2086,9 @@ class EditorTab:
                     version_path = group.versions[-1]
                     
                     if self.history:
-                        chunk_path = self.history.save_chunk(prev_chunk, f"chunk_{group.id}") if prev_chunk is not None else None
+                        prev_blend = group.last_blend if not was_new else 0
+                        prev_preserve = group.last_preserve if not was_new else True
+                        
                         trash_path = self.history.copy_to_trash(version_path)
                         base_trash = None
                         if was_new and group.has_base and len(group.versions) > 0:
@@ -2103,9 +2104,12 @@ class EditorTab:
                             "version_path": version_path,
                             "version_params": version_params,
                             "trash_path": trash_path,
-                            "chunk_path": chunk_path,
                             "had_base": group.has_base,
-                            "base_trash": base_trash
+                            "base_trash": base_trash,
+                            "prev_blend": prev_blend,
+                            "new_blend": self.blend_mode,
+                            "prev_preserve": prev_preserve,
+                            "new_preserve": preserve_nested
                         })
                     
                     self._active_track = 'result'

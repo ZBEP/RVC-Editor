@@ -20,6 +20,8 @@ class PartGroup:
         self.level = 0
         self.has_base = False
         self.created_at = time.time()
+        self.last_blend = 0
+        self.last_preserve = True
     
     def set_base(self, audio_data):
         if self.versions:
@@ -138,5 +140,7 @@ class PartGroup:
             "id": self.id, "start": self.start, "end": self.end,
             "active_idx": self.active_idx, "has_base": self.has_base,
             "versions": [os.path.basename(v) for v in self.versions],
-            "version_params": self.version_params
+            "version_params": self.version_params,
+            "last_blend": self.last_blend,
+            "last_preserve": self.last_preserve
         }
