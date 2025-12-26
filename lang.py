@@ -59,7 +59,9 @@ TRANSLATIONS = {
     "Medium": {"ru": "Средний", "zh": "中等"},
     "High Index, No Protect": {"ru": "Высокий индекс, без защиты", "zh": "高索引无保护"},
     "High Index, Max Protect": {"ru": "Высокий индекс, макс. защита", "zh": "高索引最大保护"},
-
+    "Hard": {"ru": "Жёсткий", "zh": "硬切"},
+    "Smooth": {"ru": "Плавный", "zh": "平滑"},
+    "ms": {"ru": " мс", "zh": "毫秒"},
     "This part contains nested parts.\n\nYes - Replace all (overwrite nested)\nNo - Keep nested parts\nCancel - Cancel operation": {
         "ru": "Часть содержит вложенные фрагменты.\n\nДа — Заменить всё (затереть вложенные)\nНет — Сохранить вложенные части\nОтмена — Отменить",
         "zh": "此片段包含嵌套片段。\n\n是 - 替换全部（覆盖嵌套）\n否 - 保留嵌套片段\n取消 - 取消"

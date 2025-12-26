@@ -167,7 +167,8 @@ class RVCConverterGUI:
             "editor_file": self.saved_settings.get("editor_file", ""),
             "preset_load_model": self.preset_load_model.get(),
             "preset_load_pitch": self.preset_load_pitch.get(),
-            "preset_load_f0": self.preset_load_f0.get()
+            "preset_load_f0": self.preset_load_f0.get(),
+            "blend_mode": self.editor.blend_mode if self.editor else 0
         }
         save_settings(settings)
         
@@ -583,7 +584,8 @@ class RVCConverterGUI:
             lambda: self.output_dir.get(),
             lambda: self.saved_settings.get("editor_file", ""),
             self._set_editor_file,
-            self._get_preset_info_for_editor
+            self._get_preset_info_for_editor,
+            self.saved_settings.get("blend_mode", 0)
         )
         
     def _get_converter_for_editor(self):

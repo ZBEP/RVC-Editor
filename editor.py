@@ -12,12 +12,13 @@ from waveform import WaveformCanvas, PART_ROW_HEIGHT, PART_TOP_MARGIN
 from history import HistoryManager
 
 SNAP_THRESHOLD_PX = 10
+BLEND_VALUES = [0, 15, 30, 60, 120]
 
 class EditorTab:
     
     def __init__(self, parent, get_converter_fn, log_fn, set_progress_fn, 
                  get_output_dir_fn, get_editor_file_fn, set_editor_file_fn,
-                 get_preset_info_fn=None):
+                 get_preset_info_fn=None, initial_blend_mode=False):
         self.parent = parent
         self.get_converter = get_converter_fn
         self.log = log_fn
@@ -57,6 +58,7 @@ class EditorTab:
         self._play_end = 0
         self._stream_active = False
         self._is_converting = False
+        self.blend_mode = initial_blend_mode
         self.history = None
         self.source_mode = "F"
         self.output_device = None
@@ -526,6 +528,60 @@ class EditorTab:
             return None
         return audio.mean(axis=1).astype(np.float32) if len(audio.shape) > 1 else audio.astype(np.float32)
     
+    def _get_blend_label(self):
+        if self.blend_mode == 0:
+            return f"Blend: {tr('Hard')}"
+        return f"Blend: {tr('Smooth')} {self.blend_mode}{tr('ms')}"
+    
+    def _toggle_blend(self):
+        idx = BLEND_VALUES.index(self.blend_mode) if self.blend_mode in BLEND_VALUES else 0
+        self.blend_mode = BLEND_VALUES[(idx + 1) % len(BLEND_VALUES)]
+        self.blend_btn.config(text=self._get_blend_label())
+        self.log(f"Blend: {self._get_blend_label()}")
+    
+    def _write_audio(self, data, start, fade_ms=0):
+        """Записать аудио в result с опциональным crossfade на границах"""
+        if data is None or len(data) == 0:
+            return
+        
+        write_len = len(data)
+        end = start + write_len
+        
+        if end > self.total_samples:
+            end = self.total_samples
+            write_len = end - start
+            data = data[:write_len]
+        
+        if write_len <= 0:
+            return
+        
+        # Простой режим или слишком короткий фрагмент
+        if fade_ms == 0 or write_len < 200 or self.result_audio is None:
+            self.result_audio[start:end] = data
+            self.result_audio_display[start:end] = data
+            return
+        
+        # Crossfade
+        fade_samples = min(int(self.sr * fade_ms / 1000), write_len // 4)
+        fade_samples = max(20, fade_samples)
+        
+        result = data.copy()
+        
+        # Левая граница
+        old_left = self.result_audio[start:start + fade_samples].copy()
+        if np.any(np.abs(old_left) > 0.0001):
+            curve = np.linspace(0, 1, fade_samples, dtype=np.float32)
+            result[:fade_samples] = old_left * (1 - curve) + result[:fade_samples] * curve
+        
+        # Правая граница
+        old_right = self.result_audio[end - fade_samples:end].copy()
+        if np.any(np.abs(old_right) > 0.0001):
+            curve = np.linspace(1, 0, fade_samples, dtype=np.float32)
+            result[-fade_samples:] = result[-fade_samples:] * curve + old_right * (1 - curve)
+        
+        self.result_audio[start:end] = result
+        self.result_audio_display[start:end] = result
+    
     def _toggle_source_mode(self):
         if not self.is_stereo:
             return
@@ -762,6 +818,9 @@ class EditorTab:
         self.active_lbl.pack(side=tk.LEFT, padx=5)
         
         ttk.Separator(ctrl, orient='vertical').pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        
+        self.blend_btn = ttk.Button(ctrl, text=self._get_blend_label(), width=20, command=self._toggle_blend)
+        self.blend_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         self.preset_lbl = ttk.Label(ctrl, text="", foreground='#aaa', font=('Consolas', 8))
         self.preset_lbl.pack(side=tk.LEFT, padx=(0, 10))
@@ -1094,6 +1153,12 @@ class EditorTab:
         self._is_playing = True
         self.play_btn.config(text="⏸")
 
+    def _calc_play_end(self, pos):
+        if self.sel_start is not None:
+            s1, s2 = sorted([self.sel_start, self.sel_end])
+            if s1 <= pos < s2:
+                return s2
+        return self.total_samples
 
     def _find_group(self, start, end):
         for g in self.part_groups:
@@ -1114,20 +1179,18 @@ class EditorTab:
         if len(part.versions) <= 1:
             return
         new_idx = (part.active_idx + delta) % len(part.versions)
-        if new_idx == part.active_idx:
-            return
         
         proceed, preserve_nested = self._ask_nested_action(part)
         if not proceed:
             return
         
         prev_idx = part.active_idx
+        changed = prev_idx != new_idx
         part.active_idx = new_idx
         self._apply_version(part, preserve_nested)
         self._save_project()
         
-        # Запись в историю
-        if self.history:
+        if changed and self.history:
             self.history.push({
                 "type": "switch",
                 "part_id": part.id,
@@ -1135,8 +1198,8 @@ class EditorTab:
                 "new_idx": new_idx
             })
         
-        params_str = part.format_params(part.active_idx)
         label = part.version_label(part.active_idx)
+        params_str = part.format_params(part.active_idx)
         self.log(f"{label}: {params_str}" if params_str else label)
         
         self._active_track = 'result'
@@ -1150,7 +1213,7 @@ class EditorTab:
             pos = part.start
         
         self._play_pos = self._play_start = pos
-        self._play_end = part.end
+        self._play_end = self._calc_play_end(pos)
         self._is_playing = True
         self.play_btn.config(text="⏸")
     
@@ -1159,7 +1222,6 @@ class EditorTab:
         if data is None:
             return
         
-        # Записываем только реальные данные (без padding нулями)
         max_len = group.end - group.start
         write_len = min(len(data), max_len)
         if write_len <= 0:
@@ -1169,31 +1231,103 @@ class EditorTab:
         write_data = data[:write_len]
         write_end = group.start + write_len
         
+        # Определяем нужен ли crossfade
+        is_base = group.has_base and group.active_idx == 0
+        use_fade = self.blend_mode if (self.blend_mode > 0 and not is_base and group.has_base) else 0
+        
+        # Получаем данные базы если нужен crossfade
+        base_data = group.get_base_data() if use_fade > 0 else None
+        
         if preserve_nested:
             nested = self._get_nested_parts(group)
             if nested:
                 occupied = sorted([(n.start - group.start, n.end - group.start) for n in nested])
+                segments = []
                 current = 0
+                
                 for occ_start, occ_end in occupied:
                     seg_end = min(occ_start, write_len)
                     if current < seg_end:
-                        abs_s = group.start + current
-                        abs_e = group.start + seg_end
-                        self.result_audio[abs_s:abs_e] = write_data[current:seg_end]
-                        self.result_audio_display[abs_s:abs_e] = write_data[current:seg_end]
+                        segments.append((group.start + current, group.start + seg_end, current, seg_end))
                     current = max(current, occ_end)
+                
                 if current < write_len:
-                    abs_s = group.start + current
-                    self.result_audio[abs_s:write_end] = write_data[current:]
-                    self.result_audio_display[abs_s:write_end] = write_data[current:]
+                    segments.append((group.start + current, write_end, current, write_len))
+                
+                for i, (abs_s, abs_e, d_s, d_e) in enumerate(segments):
+                    seg_data = write_data[d_s:d_e]
+                    
+                    if use_fade > 0 and base_data is not None:
+                        # Сначала записываем базу (без crossfade)
+                        base_seg = base_data[d_s:d_e] if d_e <= len(base_data) else base_data[d_s:]
+                        seg_len = min(len(base_seg), abs_e - abs_s)
+                        if seg_len > 0:
+                            self.result_audio[abs_s:abs_s + seg_len] = base_seg[:seg_len]
+                            self.result_audio_display[abs_s:abs_s + seg_len] = base_seg[:seg_len]
+                        
+                        # Затем версию с crossfade на внешних границах
+                        is_first = (i == 0)
+                        is_last = (i == len(segments) - 1)
+                        if is_first or is_last:
+                            self._write_audio_segment(seg_data, abs_s, 
+                                                     fade_left=is_first, fade_right=is_last,
+                                                     fade_ms=use_fade)
+                        else:
+                            self.result_audio[abs_s:abs_e] = seg_data
+                            self.result_audio_display[abs_s:abs_e] = seg_data
+                    else:
+                        self.result_audio[abs_s:abs_e] = seg_data
+                        self.result_audio_display[abs_s:abs_e] = seg_data
             else:
-                self.result_audio[group.start:write_end] = write_data
-                self.result_audio_display[group.start:write_end] = write_data
+                if use_fade > 0 and base_data is not None:
+                    base_len = min(len(base_data), max_len)
+                    self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
+                    self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
+                self._write_audio(write_data, group.start, fade_ms=use_fade)
         else:
-            self.result_audio[group.start:write_end] = write_data
-            self.result_audio_display[group.start:write_end] = write_data
+            if use_fade > 0 and base_data is not None:
+                base_len = min(len(base_data), max_len)
+                self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
+                self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
+            self._write_audio(write_data, group.start, fade_ms=use_fade)
         
         self._redraw()
+    
+    def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None):
+        """Записать сегмент с выборочным crossfade"""
+        if fade_ms is None:
+            fade_ms = self.blend_mode
+            
+        if data is None or len(data) == 0:
+            return
+        
+        write_len = len(data)
+        end = start + write_len
+        
+        if write_len < 100 or self.result_audio is None or fade_ms == 0:
+            self.result_audio[start:end] = data
+            self.result_audio_display[start:end] = data
+            return
+        
+        fade_samples = min(int(self.sr * fade_ms / 1000), write_len // 4)
+        fade_samples = max(20, fade_samples)
+        
+        result = data.copy()
+        
+        if fade_left:
+            old_left = self.result_audio[start:start + fade_samples].copy()
+            if np.any(np.abs(old_left) > 0.0001):
+                curve = np.linspace(0, 1, fade_samples, dtype=np.float32)
+                result[:fade_samples] = old_left * (1 - curve) + result[:fade_samples] * curve
+        
+        if fade_right:
+            old_right = self.result_audio[end - fade_samples:end].copy()
+            if np.any(np.abs(old_right) > 0.0001):
+                curve = np.linspace(1, 0, fade_samples, dtype=np.float32)
+                result[-fade_samples:] = result[-fade_samples:] * curve + old_right * (1 - curve)
+        
+        self.result_audio[start:end] = result
+        self.result_audio_display[start:end] = result
 
     def _get_nested_parts(self, part):
         """Найти части, полностью вложенные в данную"""
@@ -1247,8 +1381,6 @@ class EditorTab:
         menu.tk_popup(e.x_root, e.y_root)
     
     def _set_version(self, part, idx):
-        if idx == part.active_idx:
-            return
         if idx < 0 or idx >= len(part.versions):
             return
         
@@ -1257,11 +1389,12 @@ class EditorTab:
             return
         
         prev_idx = part.active_idx
+        changed = prev_idx != idx
         part.active_idx = idx
         self._apply_version(part, preserve_nested)
         self._save_project()
         
-        if self.history:
+        if changed and self.history:
             self.history.push({
                 "type": "switch",
                 "part_id": part.id,
@@ -1795,19 +1928,17 @@ class EditorTab:
             if not (0 <= target_idx < len(part.versions)):
                 return
         
-        if target_idx == part.active_idx:
-            return
-        
         proceed, preserve_nested = self._ask_nested_action(part)
         if not proceed:
             return
         
         prev_idx = part.active_idx
+        changed = prev_idx != target_idx
         part.active_idx = target_idx
         self._apply_version(part, preserve_nested)
         self._save_project()
         
-        if self.history:
+        if changed and self.history:
             self.history.push({
                 "type": "switch",
                 "part_id": part.id,
@@ -1824,8 +1955,9 @@ class EditorTab:
         
         if not self._stream_active:
             self._init_stream()
+        
         self._play_pos = self._play_start = pos
-        self._play_end = part.end
+        self._play_end = self._calc_play_end(pos)
         self._is_playing = True
         self.play_btn.config(text="⏸")
             
@@ -1916,8 +2048,7 @@ class EditorTab:
                         group = existing_group
                         prev_active_idx = group.active_idx
                     
-                    self.result_audio[start:start + write_len] = write_data
-                    self.result_audio_display[start:start + write_len] = write_data
+                    self._write_audio(write_data, start, fade_ms=self.blend_mode)
                     
                     version_params = {
                         "pitch": params.get("pitch", 0),
