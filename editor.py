@@ -960,8 +960,15 @@ class EditorTab:
         write_end = group.start + write_len
         
         is_base = group.has_base and group.active_idx == 0
-        use_fade = blend if (blend > 0 and not is_base and group.has_base) else 0
-        base_data = self._compute_base_for_part(group) if use_fade > 0 else None
+        use_fade = 0
+        base_data = None
+        
+        if blend > 0 and not is_base:
+            base_data = self._compute_base_for_part(group)
+            if base_data is not None and np.any(np.abs(base_data) > 0.0001):
+                use_fade = blend
+            else:
+                base_data = None
         
         if preserve_nested:
             nested = self._get_nested_parts(group)
