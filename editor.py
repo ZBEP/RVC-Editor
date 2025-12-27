@@ -121,8 +121,18 @@ class EditorTab:
         
         for p in snapshot.get("parts", []):
             existing = self._find_part_by_id(p["id"])
-            versions = [os.path.join(parts_dir, v) for v in p["versions"]]
-            versions = [v for v in versions if os.path.exists(v)]
+            
+            versions = []
+            for v in p["versions"]:
+                if v == "__COMPUTED_BASE__":
+                    versions.append("__COMPUTED_BASE__")
+                else:
+                    full_path = os.path.join(parts_dir, v)
+                    if os.path.exists(full_path):
+                        versions.append(full_path)
+            
+            if p.get("has_base", False) and (not versions or versions[0] != "__COMPUTED_BASE__"):
+                versions.insert(0, "__COMPUTED_BASE__")
             
             if not versions:
                 if existing and existing in self.part_groups:
@@ -132,7 +142,7 @@ class EditorTab:
             if existing:
                 existing.start = p["start"]
                 existing.end = p["end"]
-                existing.has_base = p["has_base"]
+                existing.has_base = p.get("has_base", False)
                 existing.last_blend = p.get("last_blend", 0)
                 existing.last_preserve = p.get("last_preserve", True)
                 existing.apply_order = p.get("apply_order", 0)
@@ -149,7 +159,7 @@ class EditorTab:
                 while len(g.version_params) < len(versions):
                     g.version_params.append(None)
                 g.active_idx = min(p["active_idx"], max(0, len(versions) - 1))
-                g.has_base = p["has_base"]
+                g.has_base = p.get("has_base", False)
                 g.last_blend = p.get("last_blend", 0)
                 g.last_preserve = p.get("last_preserve", True)
                 g.apply_order = p.get("apply_order", 0)
@@ -235,6 +245,49 @@ class EditorTab:
         if audio is None:
             return None
         return audio.mean(axis=1).astype(np.float32) if len(audio.shape) > 1 else audio.astype(np.float32)
+    
+    def _compute_base_for_part(self, part):
+        start, end = part.start, part.end
+        length = end - start
+        base = np.zeros(length, dtype=np.float32)
+        
+        underlying = [g for g in self.part_groups 
+                      if g.id != part.id 
+                      and g.apply_order < part.apply_order
+                      and g.start < end and g.end > start]
+        
+        if not underlying:
+            return base
+        
+        underlying.sort(key=lambda g: g.apply_order)
+        
+        for g in underlying:
+            data = self._get_part_data(g)
+            if data is None:
+                continue
+            
+            overlap_start = max(g.start, start)
+            overlap_end = min(g.end, end)
+            if overlap_start >= overlap_end:
+                continue
+            
+            base_pos = overlap_start - start
+            data_pos = overlap_start - g.start
+            copy_len = min(overlap_end - overlap_start, len(data) - data_pos, length - base_pos)
+            
+            if copy_len > 0:
+                base[base_pos:base_pos + copy_len] = data[data_pos:data_pos + copy_len]
+        
+        return base
+    
+    def _get_part_data(self, part, idx=None):
+        if idx is None:
+            idx = part.active_idx
+        
+        if part.has_base and idx == 0:
+            return self._compute_base_for_part(part)
+        
+        return part.get_data(idx)
     
     def _set_blend(self, value):
         self.blend_mode = value
@@ -377,21 +430,32 @@ class EditorTab:
             
             parts_dir = self._get_parts_dir()
             for p in data.get("parts", []):
-                versions = [os.path.join(parts_dir, v) for v in p["versions"] 
-                           if os.path.exists(os.path.join(parts_dir, v))]
+                versions = []
+                for v in p["versions"]:
+                    if v == "__COMPUTED_BASE__":
+                        versions.append("__COMPUTED_BASE__")
+                    else:
+                        full_path = os.path.join(parts_dir, v)
+                        if os.path.exists(full_path):
+                            versions.append(full_path)
+                
+                if p.get("has_base", False) and (not versions or versions[0] != "__COMPUTED_BASE__"):
+                    versions.insert(0, "__COMPUTED_BASE__")
+                
                 if not versions:
                     continue
+                
                 g = PartGroup(p["start"], p["end"], parts_dir, self.sr)
                 g.id = p["id"]
-                g.active_idx = min(p["active_idx"], len(versions) - 1)
-                g.has_base = p["has_base"]
                 g.versions = versions
                 g.version_params = p.get("version_params", [None] * len(versions))
+                while len(g.version_params) < len(versions):
+                    g.version_params.append(None)
+                g.active_idx = min(p["active_idx"], len(versions) - 1)
+                g.has_base = p.get("has_base", False)
                 g.last_blend = p.get("last_blend", 0)
                 g.last_preserve = p.get("last_preserve", True)
                 g.apply_order = p.get("apply_order", 0)
-                while len(g.version_params) < len(versions):
-                    g.version_params.append(None)
                 self.part_groups.append(g)
             
             if self.part_groups:
@@ -785,8 +849,8 @@ class EditorTab:
         part.active_idx = min(idx, len(part.versions) - 1)
         
         if part.has_base and len(part.versions) == 1:
-            base_data = part.get_base_data()
-            if base_data is not None:
+            base_data = self._compute_base_for_part(part)
+            if base_data is not None and len(base_data) > 0:
                 exp_len = part.end - part.start
                 if len(base_data) != exp_len:
                     tmp = np.zeros(exp_len, dtype=np.float32)
@@ -882,7 +946,7 @@ class EditorTab:
         self.play_btn.config(text="⏸")
     
     def _apply_version_data(self, group, preserve_nested=False, blend_override=None):
-        data = group.get_data()
+        data = self._get_part_data(group)
         if data is None:
             return
         
@@ -897,7 +961,7 @@ class EditorTab:
         
         is_base = group.has_base and group.active_idx == 0
         use_fade = blend if (blend > 0 and not is_base and group.has_base) else 0
-        base_data = group.get_base_data() if use_fade > 0 else None
+        base_data = self._compute_base_for_part(group) if use_fade > 0 else None
         
         if preserve_nested:
             nested = self._get_nested_parts(group)
@@ -1101,8 +1165,8 @@ class EditorTab:
     
     def _delete_part(self, part):
         if part.has_base:
-            base_data = part.get_base_data()
-            if base_data is not None:
+            base_data = self._compute_base_for_part(part)
+            if base_data is not None and len(base_data) > 0:
                 exp_len = part.end - part.start
                 if len(base_data) != exp_len:
                     tmp = np.zeros(exp_len, dtype=np.float32)
@@ -1507,7 +1571,7 @@ class EditorTab:
                 
                 tmp_in = os.path.join(tmp_dir, "_temp_in.wav")
                 tmp_out = os.path.join(tmp_dir, "_temp_out.wav")
-                
+                # Для конвертации обязатено нужно использовать source_audio, а не source_audio_display
                 sf.write(tmp_in, self._get_source_for_convert(start, end), self.sr)
                 
                 self.parent.after(0, lambda: self.log(f"{tr('Converting')} {(end-start)/self.sr:.2f}s..."))
@@ -1542,9 +1606,9 @@ class EditorTab:
                         self.part_groups.append(group)
                         
                         if not first_convert:
-                            existing = self.result_audio[start:end].copy()
+                            existing = self.result_audio[start:end]
                             if np.any(existing != 0):
-                                group.set_base(existing)
+                                group.set_base()
                     else:
                         group = existing_group
                     

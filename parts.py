@@ -24,20 +24,18 @@ class PartGroup:
         self.last_preserve = True
         self.apply_order = 0
     
-    def set_base(self, audio_data):
+    def set_base(self):
         if self.versions:
             return
-        import soundfile as sf
-        path = os.path.join(self.parts_dir, f"{self.id}_base.wav")
-        sf.write(path, audio_data, self.sr)
-        self.versions.append(path)
+        self.versions.append("__COMPUTED_BASE__")
         self.version_params.append(None)
         self.has_base = True
         self.active_idx = 0
     
     def add_version(self, audio_data, params=None):
         import soundfile as sf
-        idx = len(self.versions)
+        real_versions = [v for v in self.versions if v != "__COMPUTED_BASE__"]
+        idx = len(real_versions)
         path = os.path.join(self.parts_dir, f"{self.id}_v{idx}.wav")
         sf.write(path, audio_data, self.sr)
         self.versions.append(path)
@@ -50,15 +48,36 @@ class PartGroup:
             idx = self.active_idx
         if not self.versions or idx >= len(self.versions):
             return None
-        import soundfile as sf
+        
         path = self.versions[idx]
-        if os.path.exists(path):
+        if path == "__COMPUTED_BASE__":
+            return None
+        
+        if path and os.path.exists(path):
+            import soundfile as sf
             data, _ = sf.read(path)
             return data.astype(np.float32)
         return None
     
     def get_base_data(self):
-        return self.get_data(0) if self.has_base and self.versions else None
+        return None
+    
+    def to_dict(self):
+        versions_out = []
+        for v in self.versions:
+            if v == "__COMPUTED_BASE__":
+                versions_out.append("__COMPUTED_BASE__")
+            else:
+                versions_out.append(os.path.basename(v))
+        return {
+            "id": self.id, "start": self.start, "end": self.end,
+            "active_idx": self.active_idx, "has_base": self.has_base,
+            "versions": versions_out,
+            "version_params": self.version_params,
+            "last_blend": self.last_blend,
+            "last_preserve": self.last_preserve,
+            "apply_order": self.apply_order
+        }
     
     def get_params(self, idx=None):
         if idx is None:
@@ -129,14 +148,3 @@ class PartGroup:
     
     def size(self):
         return self.end - self.start
-    
-    def to_dict(self):
-        return {
-            "id": self.id, "start": self.start, "end": self.end,
-            "active_idx": self.active_idx, "has_base": self.has_base,
-            "versions": [os.path.basename(v) for v in self.versions],
-            "version_params": self.version_params,
-            "last_blend": self.last_blend,
-            "last_preserve": self.last_preserve,
-            "apply_order": self.apply_order
-        }
