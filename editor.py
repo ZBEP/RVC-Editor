@@ -277,6 +277,10 @@ class EditorTab:
             if data is None:
                 continue
             
+            if g.volume_db != 0:
+                gain = 10 ** (g.volume_db / 20)
+                data = data * gain
+            
             overlap_start = max(g.start, start)
             overlap_end = min(g.end, end)
             if overlap_start >= overlap_end:
@@ -1612,12 +1616,11 @@ class EditorTab:
         
         if has_sel:
             s1, s2 = sorted([self.sel_start, self.sel_end])
-            if s1 >= part.start and s2 <= part.end:
-                selection_inside = not (s1 == part.start and s2 == part.end)
-            else:
-                selection_inside = False
+            selection_inside = s1 >= part.start and s2 <= part.end and not (s1 == part.start and s2 == part.end)
         else:
             selection_inside = False
+        
+        apply_to_nested = self._is_replace_all_mode()
         
         if selection_inside:
             if self.result_audio is None or len(self.result_audio) != self.total_samples:
@@ -1627,17 +1630,31 @@ class EditorTab:
             new_part = PartGroup(s1, s2, self._get_parts_dir(), self.sr)
             new_part.set_base()
             new_part.volume_db = delta
+            self._apply_counter += 1
+            new_part.apply_order = self._apply_counter
+            new_part.last_blend = self.blend_mode
+            new_part.last_preserve = False
             self.part_groups.append(new_part)
-            self._apply_version(new_part, False, self.blend_mode)
+            
+            self._rebuild_result_from_parts()
             self._push_snapshot()
             self._save_project()
             self.log(f"{tr('Volume part:')} {new_part.volume_db:+d} dB")
         else:
+            nested = self._get_nested_parts(part) if apply_to_nested else []
+            
             part.volume_db += delta
-            self._apply_version(part, part.last_preserve, part.last_blend)
+            for n in nested:
+                n.volume_db += delta
+            
+            self._rebuild_result_from_parts()
             self._push_snapshot()
             self._save_project()
-            self.log(f"{tr('Volume:')} {part.volume_db:+d} dB")
+            
+            if nested:
+                self.log(f"{tr('Volume:')} {part.volume_db:+d} dB (+{len(nested)})")
+            else:
+                self.log(f"{tr('Volume:')} {part.volume_db:+d} dB")
         
         self._redraw()
             
