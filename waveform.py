@@ -166,6 +166,8 @@ class WaveformCanvas(tk.Canvas):
                         txt = tr("base") if g.active_idx == 0 else f"{g.active_idx}/{len(g.versions)-1}"
                     else:
                         txt = f"{g.active_idx+1}/{len(g.versions)}" if len(g.versions) > 1 else ""
+                    if g.volume_db != 0:
+                        txt = (txt + " " if txt else "") + f"{g.volume_db:+d}"
                     if txt:
                         self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff', 
                                        font=('Consolas', 7), tags='overlay')

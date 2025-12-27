@@ -124,8 +124,8 @@ class EditorTab:
             
             versions = []
             for v in p["versions"]:
-                if v == "__COMPUTED_BASE__":
-                    versions.append("__COMPUTED_BASE__")
+                if v in ("__COMPUTED_BASE__", "__SILENT__"):
+                    versions.append(v)
                 else:
                     full_path = os.path.join(parts_dir, v)
                     if os.path.exists(full_path):
@@ -146,6 +146,7 @@ class EditorTab:
                 existing.last_blend = p.get("last_blend", 0)
                 existing.last_preserve = p.get("last_preserve", True)
                 existing.apply_order = p.get("apply_order", 0)
+                existing.volume_db = p.get("volume_db", 0)
                 existing.versions = versions
                 existing.version_params = p.get("version_params", [None] * len(versions))
                 while len(existing.version_params) < len(versions):
@@ -163,6 +164,7 @@ class EditorTab:
                 g.last_blend = p.get("last_blend", 0)
                 g.last_preserve = p.get("last_preserve", True)
                 g.apply_order = p.get("apply_order", 0)
+                g.volume_db = p.get("volume_db", 0)
                 self.part_groups.append(g)
         
         if self.part_groups:
@@ -212,6 +214,15 @@ class EditorTab:
             return "break"
         if kc == 32 and not ctrl:
             self._toggle_play()
+            return "break"
+        if kc == 76 and not ctrl:
+            self._create_silent_part()
+            return "break"
+        if (kc == 187 or kc == 107) and not ctrl:
+            self._adjust_volume(1)
+            return "break"
+        if (kc == 189 or kc == 109) and not ctrl:
+            self._adjust_volume(-1)
             return "break"
         if kc == 37:
             if shift and not self._is_playing:
@@ -432,8 +443,8 @@ class EditorTab:
             for p in data.get("parts", []):
                 versions = []
                 for v in p["versions"]:
-                    if v == "__COMPUTED_BASE__":
-                        versions.append("__COMPUTED_BASE__")
+                    if v in ("__COMPUTED_BASE__", "__SILENT__"):
+                        versions.append(v)
                     else:
                         full_path = os.path.join(parts_dir, v)
                         if os.path.exists(full_path):
@@ -456,6 +467,7 @@ class EditorTab:
                 g.last_blend = p.get("last_blend", 0)
                 g.last_preserve = p.get("last_preserve", True)
                 g.apply_order = p.get("apply_order", 0)
+                g.volume_db = p.get("volume_db", 0)
                 self.part_groups.append(g)
             
             if self.part_groups:
@@ -950,6 +962,10 @@ class EditorTab:
         if data is None:
             return
         
+        if group.volume_db != 0:
+            gain = 10 ** (group.volume_db / 20)
+            data = data * gain
+        
         blend = blend_override if blend_override is not None else self.blend_mode
         max_len = group.end - group.start
         write_len = min(len(data), max_len)
@@ -963,7 +979,9 @@ class EditorTab:
         use_fade = 0
         base_data = None
         
-        if blend > 0 and not is_base:
+        should_crossfade = blend > 0 and (not is_base or group.volume_db != 0)
+        
+        if should_crossfade:
             base_data = self._compute_base_for_part(group)
             if base_data is not None and np.any(np.abs(base_data) > 0.0001):
                 use_fade = blend
@@ -1541,6 +1559,87 @@ class EditorTab:
         self._play_end = self._calc_play_end(pos)
         self._is_playing = True
         self.play_btn.config(text="⏸")
+            
+    def _create_silent_part(self):
+        if self.source_audio is None:
+            self.log(tr("Load file first"))
+            return
+        
+        has_sel = self.sel_start is not None and abs(self.sel_end - self.sel_start) > 100
+        if not has_sel:
+            self.log(tr("Select a region first"))
+            return
+        
+        start, end = sorted([self.sel_start, self.sel_end])
+        first_convert = self.result_audio is None
+        
+        if self.result_audio is None or len(self.result_audio) != self.total_samples:
+            self.result_audio = np.zeros(self.total_samples, dtype=np.float32)
+            self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
+        
+        existing_group = self._find_group(start, end)
+        preserve_nested = not self._is_replace_all_mode()
+        
+        if existing_group is None:
+            group = PartGroup(start, end, self._get_parts_dir(), self.sr)
+            self.part_groups.append(group)
+            if not first_convert and np.any(self.result_audio[start:end] != 0):
+                group.set_base()
+        else:
+            group = existing_group
+        
+        group.add_silent_version()
+        self._apply_version(group, preserve_nested, self.blend_mode)
+        self._push_snapshot()
+        self._save_project()
+        
+        self._active_track = 'result'
+        self._update_active_label()
+        self.log(f"✓ {tr('Silent part created')}")
+        self._redraw()
+    
+    def _adjust_volume(self, delta):
+        if self.source_audio is None or not self.part_groups:
+            return
+        
+        pos = self.cursor_pos or 0
+        matching = [g for g in self.part_groups if g.start <= pos < g.end]
+        if not matching:
+            return
+        
+        part = min(matching, key=lambda g: g.size())
+        has_sel = self.sel_start is not None and abs(self.sel_end - self.sel_start) > 100
+        
+        if has_sel:
+            s1, s2 = sorted([self.sel_start, self.sel_end])
+            if s1 >= part.start and s2 <= part.end:
+                selection_inside = not (s1 == part.start and s2 == part.end)
+            else:
+                selection_inside = False
+        else:
+            selection_inside = False
+        
+        if selection_inside:
+            if self.result_audio is None or len(self.result_audio) != self.total_samples:
+                self.result_audio = np.zeros(self.total_samples, dtype=np.float32)
+                self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
+            
+            new_part = PartGroup(s1, s2, self._get_parts_dir(), self.sr)
+            new_part.set_base()
+            new_part.volume_db = delta
+            self.part_groups.append(new_part)
+            self._apply_version(new_part, False, self.blend_mode)
+            self._push_snapshot()
+            self._save_project()
+            self.log(f"{tr('Volume part:')} {new_part.volume_db:+d} dB")
+        else:
+            part.volume_db += delta
+            self._apply_version(part, part.last_preserve, part.last_blend)
+            self._push_snapshot()
+            self._save_project()
+            self.log(f"{tr('Volume:')} {part.volume_db:+d} dB")
+        
+        self._redraw()
             
     def _convert(self):
         if self.source_audio is None:

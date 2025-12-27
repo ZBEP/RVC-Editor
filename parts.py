@@ -23,6 +23,7 @@ class PartGroup:
         self.last_blend = 0
         self.last_preserve = True
         self.apply_order = 0
+        self.volume_db = 0
     
     def set_base(self):
         if self.versions:
@@ -34,12 +35,18 @@ class PartGroup:
     
     def add_version(self, audio_data, params=None):
         import soundfile as sf
-        real_versions = [v for v in self.versions if v != "__COMPUTED_BASE__"]
+        real_versions = [v for v in self.versions if v not in ("__COMPUTED_BASE__", "__SILENT__")]
         idx = len(real_versions)
         path = os.path.join(self.parts_dir, f"{self.id}_v{idx}.wav")
         sf.write(path, audio_data, self.sr)
         self.versions.append(path)
         self.version_params.append(params)
+        self.active_idx = len(self.versions) - 1
+        return self.active_idx
+    
+    def add_silent_version(self, params=None):
+        self.versions.append("__SILENT__")
+        self.version_params.append(params or {"silent": True})
         self.active_idx = len(self.versions) - 1
         return self.active_idx
     
@@ -53,6 +60,9 @@ class PartGroup:
         if path == "__COMPUTED_BASE__":
             return None
         
+        if path == "__SILENT__":
+            return np.zeros(self.end - self.start, dtype=np.float32)
+        
         if path and os.path.exists(path):
             import soundfile as sf
             data, _ = sf.read(path)
@@ -65,8 +75,8 @@ class PartGroup:
     def to_dict(self):
         versions_out = []
         for v in self.versions:
-            if v == "__COMPUTED_BASE__":
-                versions_out.append("__COMPUTED_BASE__")
+            if v in ("__COMPUTED_BASE__", "__SILENT__"):
+                versions_out.append(v)
             else:
                 versions_out.append(os.path.basename(v))
         return {
@@ -76,7 +86,8 @@ class PartGroup:
             "version_params": self.version_params,
             "last_blend": self.last_blend,
             "last_preserve": self.last_preserve,
-            "apply_order": self.apply_order
+            "apply_order": self.apply_order,
+            "volume_db": self.volume_db
         }
     
     def get_params(self, idx=None):
@@ -115,8 +126,9 @@ class PartGroup:
     
     def cleanup(self):
         for p in self.versions:
-            try: os.remove(p)
-            except: pass
+            if p not in ("__COMPUTED_BASE__", "__SILENT__"):
+                try: os.remove(p)
+                except: pass
         self.versions = []
         self.version_params = []
     
@@ -126,7 +138,10 @@ class PartGroup:
     def version_label(self, idx):
         if self.has_base and idx == 0:
             return tr("Original")
+        path = self.versions[idx] if idx < len(self.versions) else ""
         offset = 1 if self.has_base else 0
+        if path == "__SILENT__":
+            return f"{tr('Silent')} {idx - offset + 1}"
         return f"{tr('Version')} {idx - offset + 1}"
     
     def format_params(self, idx):
