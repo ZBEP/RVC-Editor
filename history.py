@@ -11,7 +11,7 @@ class HistoryManager:
         self.history_file = os.path.join(project_dir, "history.json")
         self.snapshots = []
         self.position = -1
-        self.max_history = 50
+        self.max_history = 5000
         self._load()
     
     def _load(self):

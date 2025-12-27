@@ -277,7 +277,8 @@ class EditorTab:
             if data is None:
                 continue
             
-            if g.volume_db != 0:
+            skip_vol = g.has_base and g.active_idx == 0 and len(g.versions) > 1
+            if g.volume_db != 0 and not skip_vol:
                 gain = 10 ** (g.volume_db / 20)
                 data = data * gain
             
@@ -966,7 +967,8 @@ class EditorTab:
         if data is None:
             return
         
-        if group.volume_db != 0:
+        skip_vol = group.has_base and group.active_idx == 0 and len(group.versions) > 1
+        if group.volume_db != 0 and not skip_vol:
             gain = 10 ** (group.volume_db / 20)
             data = data * gain
         
@@ -983,7 +985,7 @@ class EditorTab:
         use_fade = 0
         base_data = None
         
-        should_crossfade = blend > 0 and (not is_base or group.volume_db != 0)
+        should_crossfade = blend > 0 and (not is_base or (group.volume_db != 0 and not skip_vol))
         
         if should_crossfade:
             base_data = self._compute_base_for_part(group)
@@ -1131,7 +1133,6 @@ class EditorTab:
         
         menu.add_separator()
         menu.add_command(label=tr("Delete part (restore)"), command=lambda: self._delete_part(part))
-        menu.add_command(label=tr("Delete part files"), command=lambda: self._delete_part_files(part))
         
         if len(self.part_groups) > 1:
             menu.add_separator()
