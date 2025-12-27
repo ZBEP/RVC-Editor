@@ -85,7 +85,7 @@ class WaveformCanvas(tk.Canvas):
         
         self._wf_cache_key = cache_key
         
-        img = Image.new('RGB', (w, h), (30, 30, 46))
+        img = Image.new('RGB', (w, h), (30, 30, 30))
         
         if audio is not None and ed.total_samples > 0:
             draw = ImageDraw.Draw(img)
@@ -150,17 +150,17 @@ class WaveformCanvas(tk.Canvas):
                 y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
                 y2 = y1 + PART_ROW_HEIGHT - 2
                 
-                if g.has_base and g.active_idx == 0:
-                    fill, outline = '#566573', '#444'
-                elif len(g.versions) > (2 if g.has_base else 1):
-                    fill, outline = '#9b59b6', '#8e44ad'
+                if not g.has_base and len(g.versions) == 1:
+                    fill, outline = '#202020', '#444'
+                elif g.has_base and g.active_idx == 0:
+                    fill, outline = '#606060', '#444'
                 else:
-                    fill, outline = '#7f8c8d', '#566573'
+                    fill, outline = '#9b59b6', '#8e44ad'
                 
                 x1_c, x2_c = max(0, gx1), min(w, gx2)
                 self.create_rectangle(x1_c, y1, x2_c, y2, fill=fill, outline=outline, tags='overlay')
                 
-                if (x2_c - x1_c) > 30:
+                if (x2_c - x1_c) > 60:
                     cx = (x1_c + x2_c) // 2
                     if g.has_base:
                         txt = tr("base") if g.active_idx == 0 else f"{g.active_idx}/{len(g.versions)-1}"
