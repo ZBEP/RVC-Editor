@@ -1049,8 +1049,6 @@ class EditorTab:
     def _set_version(self, part, idx):
         if idx < 0 or idx >= len(part.versions):
             return
-        if idx == part.active_idx:
-            return
         
         proceed, preserve_nested = self._ask_nested_action(part)
         if not proceed:
@@ -1448,9 +1446,6 @@ class EditorTab:
             target_idx = num if part.has_base else num - 1
             if not (0 <= target_idx < len(part.versions)):
                 return
-        
-        if target_idx == part.active_idx:
-            return
         
         proceed, preserve_nested = self._ask_nested_action(part)
         if not proceed:
