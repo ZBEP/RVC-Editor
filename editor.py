@@ -30,9 +30,9 @@ class EditorTab:
         self.get_preset_info = get_preset_info_fn or (lambda: {})
         
         self.source_path = None
-        self.source_audio = None
+        self.source_audio = None # Обязатено использовать в качестве источника данных для конвертации - source_audio
         self.result_audio = None
-        self.source_audio_display = None
+        self.source_audio_display = None # Используется только для отрисовки - source_audio_display
         self.result_audio_display = None
         
         self.sr = None
@@ -59,6 +59,7 @@ class EditorTab:
         self._play_end = 0
         self._stream_active = False
         self._is_converting = False
+        self._apply_counter = 0
         self.blend_mode = initial_blend_mode
         self.history = None
         self.source_mode = "F"
@@ -92,10 +93,10 @@ class EditorTab:
         self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
         
         self._assign_levels()
-        sorted_parts = sorted(self.part_groups, key=lambda p: p.level)
+        sorted_parts = sorted(self.part_groups, key=lambda p: p.apply_order)
         
         for part in sorted_parts:
-            self._apply_version(part, part.last_preserve, part.last_blend, update_state=False)
+            self._apply_version_data(part, part.last_preserve, part.last_blend)
     
     def _create_snapshot(self):
         return {
@@ -134,6 +135,7 @@ class EditorTab:
                 existing.has_base = p["has_base"]
                 existing.last_blend = p.get("last_blend", 0)
                 existing.last_preserve = p.get("last_preserve", True)
+                existing.apply_order = p.get("apply_order", 0)
                 existing.versions = versions
                 existing.version_params = p.get("version_params", [None] * len(versions))
                 while len(existing.version_params) < len(versions):
@@ -150,7 +152,11 @@ class EditorTab:
                 g.has_base = p["has_base"]
                 g.last_blend = p.get("last_blend", 0)
                 g.last_preserve = p.get("last_preserve", True)
+                g.apply_order = p.get("apply_order", 0)
                 self.part_groups.append(g)
+        
+        if self.part_groups:
+            self._apply_counter = max(g.apply_order for g in self.part_groups)
         
         self._rebuild_result_from_parts()
         return True
@@ -383,9 +389,13 @@ class EditorTab:
                 g.version_params = p.get("version_params", [None] * len(versions))
                 g.last_blend = p.get("last_blend", 0)
                 g.last_preserve = p.get("last_preserve", True)
+                g.apply_order = p.get("apply_order", 0)
                 while len(g.version_params) < len(versions):
                     g.version_params.append(None)
                 self.part_groups.append(g)
+            
+            if self.part_groups:
+                self._apply_counter = max(g.apply_order for g in self.part_groups)
             
             self.log(tr("Project loaded"))
             return True
@@ -871,21 +881,15 @@ class EditorTab:
         self._is_playing = True
         self.play_btn.config(text="⏸")
     
-    def _apply_version(self, group, preserve_nested=False, blend_override=None, update_state=True):
+    def _apply_version_data(self, group, preserve_nested=False, blend_override=None):
         data = group.get_data()
         if data is None:
             return
         
         blend = blend_override if blend_override is not None else self.blend_mode
-        
-        if update_state:
-            group.last_blend = blend
-            group.last_preserve = preserve_nested
-        
         max_len = group.end - group.start
         write_len = min(len(data), max_len)
         if write_len <= 0:
-            self._redraw()
             return
         
         write_data = data[:write_len]
@@ -945,8 +949,18 @@ class EditorTab:
                 self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
                 self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
             self._write_audio(write_data, group.start, fade_ms=use_fade)
+    
+    def _apply_version(self, group, preserve_nested=False, blend_override=None, update_state=True):
+        blend = blend_override if blend_override is not None else self.blend_mode
         
-        self._redraw()
+        if update_state:
+            group.last_blend = blend
+            group.last_preserve = preserve_nested
+            self._apply_counter += 1
+            group.apply_order = self._apply_counter
+        
+        self._apply_version_data(group, preserve_nested, blend)
+        self._redraw_result()
     
     def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None):
         if fade_ms is None:
@@ -1215,9 +1229,16 @@ class EditorTab:
             
     def _redraw(self):
         self.source_wf.draw()
+        self.result_wf._wf_cache_key = None
         self.result_wf.draw()
         if self.play_pos is not None or self.source_wf._last_playhead_x is not None:
             self.source_wf.update_playhead()
+            self.result_wf.update_playhead()
+        
+    def _redraw_result(self):
+        self.result_wf._wf_cache_key = None
+        self.result_wf.draw()
+        if self.play_pos is not None or self.result_wf._last_playhead_x is not None:
             self.result_wf.update_playhead()
         
     def _update_playhead(self):
@@ -1519,6 +1540,7 @@ class EditorTab:
                         self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
                     
                     existing_group = self._find_group(start, end)
+                    preserve_nested = not self._is_replace_all_mode()
                     
                     if existing_group is None:
                         group = PartGroup(start, end, self._get_parts_dir(), self.sr)
@@ -1530,30 +1552,6 @@ class EditorTab:
                                 group.set_base(existing)
                     else:
                         group = existing_group
-                    
-                    preserve_nested = not self._is_replace_all_mode()
-                    nested = self._get_nested_parts(group) if preserve_nested else []
-                    
-                    if nested:
-                        occupied = sorted([(n.start, n.end) for n in nested])
-                        segments = []
-                        current = start
-                        
-                        for occ_start, occ_end in occupied:
-                            if current < occ_start:
-                                segments.append((current, min(occ_start, start + write_len)))
-                            current = max(current, occ_end)
-                        
-                        if current < start + write_len:
-                            segments.append((current, start + write_len))
-                        
-                        for seg_start, seg_end in segments:
-                            rel_start = seg_start - start
-                            rel_end = seg_end - start
-                            if rel_end > rel_start:
-                                self._write_audio(write_data[rel_start:rel_end], seg_start, fade_ms=self.blend_mode)
-                    else:
-                        self._write_audio(write_data, start, fade_ms=self.blend_mode)
                     
                     version_params = {
                         "pitch": params.get("pitch", 0),
@@ -1568,12 +1566,11 @@ class EditorTab:
                     }
                     group.add_version(write_data, version_params)
                     
+                    self._apply_version(group, preserve_nested, self.blend_mode)
                     self._push_snapshot()
                     
                     self._active_track = 'result'
-                    
                     self.parent.after(0, self._update_active_label)
-                    self.parent.after(0, self._redraw)
                     self._save_project()
                     
                     ver_info = f" ({group.version_label(group.active_idx)})" if group.version_count() > 1 or group.has_base else ""

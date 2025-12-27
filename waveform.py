@@ -1,5 +1,6 @@
 import tkinter as tk
 import numpy as np
+from PIL import Image, ImageDraw, ImageTk
 
 from lang import tr
 
@@ -17,10 +18,14 @@ class WaveformCanvas(tk.Canvas):
         self.is_result = is_result
         self.color = '#e74c3c' if is_result else '#5dade2'
         self._drag_marker = None
-        self._drag_part_edge = None  # (part, 'start'/'end')
-        self._drag_start_data = None  # Для истории при drag
+        self._drag_part_edge = None
+        self._drag_start_data = None
         self._last_playhead_x = None
         self._last_size = (0, 0)
+        
+        self._wf_photo = None
+        self._wf_image_id = None
+        self._wf_cache_key = None
         
         self.bind('<Configure>', self._on_configure)
         self.bind('<Button-1>', self._on_click)
@@ -39,8 +44,8 @@ class WaveformCanvas(tk.Canvas):
         if new_size != self._last_size:
             self._last_size = new_size
             self._last_playhead_x = None
-            self.delete('all')
-            self._draw_static()
+            self._wf_cache_key = None
+            self.draw()
             self._draw_playhead()
         
     def get_audio(self):
@@ -59,59 +64,82 @@ class WaveformCanvas(tk.Canvas):
         return not self.is_result and y < MARKER_HANDLE_HEIGHT
         
     def draw(self):
-        """Перерисовка статических элементов (без мерцания playhead)"""
-        self.delete('static')
-        self._draw_static()
-    
-    def _draw_static(self):
-        """Рисует waveform, выделение, маркеры, части"""
         w, h = self.winfo_width(), self.winfo_height()
         if w <= 1 or h <= 1:
             return
-            
-        mid = h // 2
+        self._update_waveform_image(w, h)
+        self.delete('overlay')
+        self._draw_overlay(w, h)
+    
+    def _update_waveform_image(self, w, h):
         ed = self.editor
         audio = self.get_audio()
         
-        if audio is None or ed.total_samples == 0:
-            self.create_text(w // 2, mid, text=tr("Result") if self.is_result else tr("Load WAV"), 
-                           fill='#666', tags='static')
+        if audio is None:
+            cache_key = (w, h, None, None)
+        else:
+            cache_key = (w, h, ed.zoom, ed.offset)
+        
+        if cache_key == self._wf_cache_key and self._wf_image_id:
             return
         
-        visible = ed.total_samples / ed.zoom
-        spp = visible / max(1, w)
+        self._wf_cache_key = cache_key
         
-        # Выделение
+        img = Image.new('RGB', (w, h), (30, 30, 46))
+        
+        if audio is not None and ed.total_samples > 0:
+            draw = ImageDraw.Draw(img)
+            mid = h // 2
+            draw.line([(0, mid), (w, mid)], fill=(68, 68, 68))
+            
+            visible = ed.total_samples / ed.zoom
+            spp = visible / max(1, w)
+            audio_len = len(audio)
+            color_rgb = (231, 76, 60) if self.is_result else (93, 173, 226)
+            
+            for x in range(w):
+                s0 = int(ed.offset + x * spp)
+                if s0 >= audio_len:
+                    break
+                s1 = min(int(ed.offset + (x + 1) * spp), audio_len)
+                chunk = audio[s0:s1]
+                if len(chunk):
+                    amp = float(np.max(np.abs(chunk)))
+                    y = int(amp * mid * 0.9)
+                    if y > 0:
+                        draw.line([(x, mid - y), (x, mid + y)], fill=color_rgb)
+        
+        self._wf_photo = ImageTk.PhotoImage(img)
+        
+        if self._wf_image_id:
+            self.itemconfig(self._wf_image_id, image=self._wf_photo)
+        else:
+            self._wf_image_id = self.create_image(0, 0, anchor='nw', image=self._wf_photo, tags='waveform')
+    
+    def _draw_overlay(self, w, h):
+        ed = self.editor
+        audio = self.get_audio()
+        mid = h // 2
+        
+        if audio is None or ed.total_samples == 0:
+            self.create_text(w // 2, mid, text=tr("Result") if self.is_result else tr("Load WAV"), 
+                           fill='#666', tags='overlay')
+            return
+        
         if ed.sel_start is not None:
             x1 = ed._s2x(min(ed.sel_start, ed.sel_end), w)
             x2 = ed._s2x(max(ed.sel_start, ed.sel_end), w)
-            self.create_rectangle(x1, 0, x2, h, fill='#2d4a6f', outline='#4a7ab0', tags='static')
+            self.create_rectangle(x1, 0, x2, h, fill='#2d4a6f', outline='#4a7ab0', 
+                                stipple='gray50', tags='overlay')
         
-        # Waveform
-        audio_len = len(audio)
-        for x in range(w):
-            s0 = int(ed.offset + x * spp)
-            if s0 >= audio_len:
-                break
-            s1 = min(int(ed.offset + (x + 1) * spp), audio_len)
-            chunk = audio[s0:s1]
-            if len(chunk):
-                amp = np.max(np.abs(chunk))
-                y = int(amp * mid * 0.9)
-                self.create_line(x, mid - y, x, mid + y, fill=self.color, tags='static')
-        
-        self.create_line(0, mid, w, mid, fill='#444', tags='static')
-        
-        # Маркеры (только source)
         if not self.is_result:
             for i, marker in enumerate(ed.markers):
                 mx = ed._s2x(marker, w)
                 if 0 <= mx <= w:
-                    self.create_line(mx, 0, mx, h, fill='#ff9800', width=2, dash=(4, 2), tags='static')
+                    self.create_line(mx, 0, mx, h, fill='#ff9800', width=2, dash=(4, 2), tags='overlay')
                     self.create_rectangle(mx-4, 0, mx+4, MARKER_HANDLE_HEIGHT, 
-                                        fill='#ff9800', outline='#e65100', tags=('static', f'marker_{i}'))
+                                        fill='#ff9800', outline='#e65100', tags=('overlay', f'marker_{i}'))
         
-        # Части (только result)
         if self.is_result and ed.part_groups:
             ed._assign_levels()
             for g in ed.part_groups:
@@ -130,7 +158,7 @@ class WaveformCanvas(tk.Canvas):
                     fill, outline = '#7f8c8d', '#566573'
                 
                 x1_c, x2_c = max(0, gx1), min(w, gx2)
-                self.create_rectangle(x1_c, y1, x2_c, y2, fill=fill, outline=outline, tags='static')
+                self.create_rectangle(x1_c, y1, x2_c, y2, fill=fill, outline=outline, tags='overlay')
                 
                 if (x2_c - x1_c) > 30:
                     cx = (x1_c + x2_c) // 2
@@ -140,9 +168,8 @@ class WaveformCanvas(tk.Canvas):
                         txt = f"{g.active_idx+1}/{len(g.versions)}" if len(g.versions) > 1 else ""
                     if txt:
                         self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff', 
-                                       font=('Consolas', 7), tags='static')
+                                       font=('Consolas', 7), tags='overlay')
         
-        # Границы частей
         if ed.part_groups:
             drawn = set()
             for g in ed.part_groups:
@@ -152,16 +179,14 @@ class WaveformCanvas(tk.Canvas):
                         bx = ed._s2x(b, w)
                         if 0 <= bx <= w:
                             self.create_line(bx, 0, bx, h, fill='#8e44ad', width=1, 
-                                           dash=(2, 2), tags='static')
+                                           dash=(2, 2), tags='overlay')
         
-        # Курсор
         if ed.cursor_pos is not None:
             cx = ed._s2x(ed.cursor_pos, w)
             if 0 <= cx <= w:
-                self.create_line(cx, 0, cx, h, fill='#ffff00', width=1, dash=(3, 3), tags='static')
+                self.create_line(cx, 0, cx, h, fill='#ffff00', width=1, dash=(3, 3), tags='overlay')
     
     def _draw_playhead(self):
-        """Отрисовка playhead"""
         ed = self.editor
         self.delete('playhead')
         
@@ -180,7 +205,6 @@ class WaveformCanvas(tk.Canvas):
             self.create_line(px, 0, px, h, fill='#00ff00', width=2, tags='playhead')
     
     def update_playhead(self):
-        """Быстрое обновление только playhead (вызывается из потока)"""
         ed = self.editor
         
         if ed.play_pos is None:
@@ -225,12 +249,10 @@ class WaveformCanvas(tk.Canvas):
         return None
     
     def _find_part_edge_at(self, x, y, threshold=6):
-        """Находит границу части рядом с x в зоне заголовка. Возвращает (part, 'start'/'end') или None"""
         if not self.is_result or not self.editor.part_groups:
             return None
         w = self.winfo_width()
         for g in self.editor.part_groups:
-            # Проверяем что y в зоне заголовка этой части
             y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
             y2 = y1 + PART_ROW_HEIGHT
             if not (y1 <= y < y2):
@@ -245,21 +267,17 @@ class WaveformCanvas(tk.Canvas):
     
     def _on_motion(self, e):
         ed = self.editor
-        # Границы частей (result track) - только в зоне заголовка
         if self.is_result and self._find_part_edge_at(e.x, e.y):
             self.config(cursor='sb_h_double_arrow')
             return
-        # Маркеры (source track)
         if not self.is_result and self._in_marker_zone(e.y):
             if self._find_marker_at(e.x) is not None:
                 self.config(cursor='sb_h_double_arrow')
                 return
-        # Части (клик)
         if self._in_parts_zone(e.y):
             if self._find_part_at(e.x, e.y) is not None:
                 self.config(cursor='hand2')
                 return
-        # Границы выделения
         if ed.sel_start is not None:
             w = self.winfo_width()
             s1, s2 = sorted([ed.sel_start, ed.sel_end])
@@ -272,36 +290,25 @@ class WaveformCanvas(tk.Canvas):
     def _on_click(self, e):
         ed = self.editor
         w = self.winfo_width()
-        # Границы частей (result) - только в зоне заголовка
         if self.is_result:
             edge = self._find_part_edge_at(e.x, e.y)
             if edge is not None:
                 part, edge_type = edge
-                # Сохраняем начальные данные для истории
-                self._drag_start_data = {
-                    "part_id": part.id,
-                    "old_start": part.start,
-                    "old_end": part.end
-                }
+                self._drag_start_data = {"part_id": part.id, "old_start": part.start, "old_end": part.end}
                 self._drag_part_edge = edge
                 return
-        # Маркеры (source)
         if not self.is_result and self._in_marker_zone(e.y):
             marker_idx = self._find_marker_at(e.x)
             if marker_idx is not None:
-                # Сохраняем начальную позицию
-                self._drag_start_data = {
-                    "idx": marker_idx,
-                    "old_pos": ed.markers[marker_idx]
-                }
+                self._drag_start_data = {"idx": marker_idx, "old_pos": ed.markers[marker_idx]}
                 self._drag_marker = marker_idx
                 return
         ed._on_click(e, w, self.is_result)
             
     def _on_wheel(self, e):
-        if e.state & 0x4:  # Ctrl
+        if e.state & 0x4:
             self.editor._on_zoom(e, self.winfo_width())
-        elif e.state & 0x1:  # Shift
+        elif e.state & 0x1:
             self.editor._on_scroll(e, self.winfo_width())
         elif self.is_result and self._in_parts_zone(e.y):
             part = self._find_part_at(e.x, e.y)
@@ -317,7 +324,6 @@ class WaveformCanvas(tk.Canvas):
     def _on_drag(self, e):
         w = self.winfo_width()
         MIN_PART_SIZE = 2000
-        # Перетаскивание границы части
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
@@ -327,7 +333,6 @@ class WaveformCanvas(tk.Canvas):
                 part.end = min(self.editor.total_samples, max(sample, part.start + MIN_PART_SIZE))
             self.editor._redraw()
             return
-        # Маркеры
         if self._drag_marker is not None:
             sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
             self.editor.markers[self._drag_marker] = sample

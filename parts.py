@@ -22,6 +22,7 @@ class PartGroup:
         self.created_at = time.time()
         self.last_blend = 0
         self.last_preserve = True
+        self.apply_order = 0
     
     def set_base(self, audio_data):
         if self.versions:
@@ -78,10 +79,8 @@ class PartGroup:
             return False
         if self.has_base and self.active_idx == 0 and len(self.versions) == 2:
             return False
-        path = self.versions.pop(self.active_idx)
+        self.versions.pop(self.active_idx)
         self.version_params.pop(self.active_idx)
-        try: os.remove(path)
-        except: pass
         self.active_idx = min(self.active_idx, len(self.versions) - 1)
         return True
     
@@ -90,10 +89,6 @@ class PartGroup:
             return
         keep_path = self.versions[self.active_idx]
         keep_params = self.version_params[self.active_idx]
-        for p in self.versions:
-            if p != keep_path:
-                try: os.remove(p)
-                except: pass
         self.versions = [keep_path]
         self.version_params = [keep_params]
         self.active_idx = 0
@@ -142,5 +137,6 @@ class PartGroup:
             "versions": [os.path.basename(v) for v in self.versions],
             "version_params": self.version_params,
             "last_blend": self.last_blend,
-            "last_preserve": self.last_preserve
+            "last_preserve": self.last_preserve,
+            "apply_order": self.apply_order
         }
