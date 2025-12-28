@@ -45,7 +45,8 @@ DEFAULT_SETTINGS = {
     "preset_load_model": False,
     "preset_load_pitch": False,
     "preset_load_f0": False,
-    "blend_mode": 0
+    "blend_mode": 0,
+    "crossfade_type": 0,
 }
 
 AUDIO_EXTENSIONS = ('.wav', '.mp3', '.flac', '.ogg', '.m4a', '.wma', '.aac')

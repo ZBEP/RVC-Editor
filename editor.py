@@ -20,7 +20,7 @@ class EditorTab:
     
     def __init__(self, parent, get_converter_fn, log_fn, set_progress_fn, 
                  get_output_dir_fn, get_editor_file_fn, set_editor_file_fn,
-                 get_preset_info_fn=None, initial_blend_mode=False):
+                 get_preset_info_fn=None, initial_blend_mode=0, initial_crossfade_type=0):
         self.parent = parent
         self.get_converter = get_converter_fn
         self.log = log_fn
@@ -62,6 +62,7 @@ class EditorTab:
         self._is_converting = False
         self._apply_counter = 0
         self.blend_mode = initial_blend_mode
+        self.crossfade_type = initial_crossfade_type
         self.history = None
         self.source_mode = "F"
         self.output_device = None
@@ -260,6 +261,13 @@ class EditorTab:
             return None
         return audio.mean(axis=1).astype(np.float32) if len(audio.shape) > 1 else audio.astype(np.float32)
     
+    def _get_fade_curves(self, length):
+        t = np.linspace(0, 1, length, dtype=np.float32)
+        if self.crossfade_type == 0:
+            return t, 1 - t
+        else:
+            return np.sin(t * np.pi / 2), np.cos(t * np.pi / 2)
+    
     def _compute_base_for_part(self, part):
         start, end = part.start, part.end
         length = end - start
@@ -330,6 +338,16 @@ class EditorTab:
         for val, btn in self.blend_btns.items():
             btn.state(['pressed'] if val == self.blend_mode else ['!pressed'])
     
+    def _toggle_crossfade_type(self):
+        self.crossfade_type = (self.crossfade_type + 1) % 2
+        self._update_crossfade_btn()
+        name = tr("Linear blend") if self.crossfade_type == 0 else tr("Smooth blend")
+        self.log(f"Crossfade: {name}")
+
+    def _update_crossfade_btn(self):
+        name = tr("Linear blend") if self.crossfade_type == 0 else tr("Smooth blend")
+        self.crossfade_btn.config(text=name)
+    
     def _write_audio(self, data, start, fade_ms=0):
         if data is None or len(data) == 0:
             return
@@ -354,16 +372,15 @@ class EditorTab:
         fade_samples = max(20, fade_samples)
         
         result = data.copy()
+        fade_in, fade_out = self._get_fade_curves(fade_samples)
         
         old_left = self.result_audio[start:start + fade_samples].copy()
         if np.any(np.abs(old_left) > 0.0001):
-            curve = np.linspace(0, 1, fade_samples, dtype=np.float32)
-            result[:fade_samples] = old_left * (1 - curve) + result[:fade_samples] * curve
+            result[:fade_samples] = old_left * fade_out + result[:fade_samples] * fade_in
         
         old_right = self.result_audio[end - fade_samples:end].copy()
         if np.any(np.abs(old_right) > 0.0001):
-            curve = np.linspace(1, 0, fade_samples, dtype=np.float32)
-            result[-fade_samples:] = result[-fade_samples:] * curve + old_right * (1 - curve)
+            result[-fade_samples:] = result[-fade_samples:] * fade_out + old_right * fade_in
         
         self.result_audio[start:end] = result
         self.result_audio_display[start:end] = result
@@ -703,8 +720,10 @@ class EditorTab:
             btn = ttk.Button(time_frame, text=str(val), width=3, command=lambda v=val: self._set_blend(v))
             btn.pack(side=tk.RIGHT, padx=1)
             self.blend_btns[val] = btn
-        ttk.Label(time_frame, text="Blend:", foreground='#888').pack(side=tk.RIGHT, padx=(10, 2))
+        self.crossfade_btn = ttk.Button(time_frame, width=24, command=self._toggle_crossfade_type)
+        self.crossfade_btn.pack(side=tk.RIGHT, padx=(10, 2))
         self._update_blend_buttons()
+        self._update_crossfade_btn()
         
         self.sel_lbl = ttk.Label(time_frame, text="", foreground='gray', font=('Consolas', 9))
         self.sel_lbl.pack(side=tk.RIGHT)        
@@ -1146,18 +1165,17 @@ class EditorTab:
         fade_samples = max(20, fade_samples)
         
         result = data.copy()
+        fade_in, fade_out = self._get_fade_curves(fade_samples)
         
         if fade_left:
             old_left = self.result_audio[start:start + fade_samples].copy()
             if np.any(np.abs(old_left) > 0.0001):
-                curve = np.linspace(0, 1, fade_samples, dtype=np.float32)
-                result[:fade_samples] = old_left * (1 - curve) + result[:fade_samples] * curve
+                result[:fade_samples] = old_left * fade_out + result[:fade_samples] * fade_in
         
         if fade_right:
             old_right = self.result_audio[end - fade_samples:end].copy()
             if np.any(np.abs(old_right) > 0.0001):
-                curve = np.linspace(1, 0, fade_samples, dtype=np.float32)
-                result[-fade_samples:] = result[-fade_samples:] * curve + old_right * (1 - curve)
+                result[-fade_samples:] = result[-fade_samples:] * fade_out + old_right * fade_in
         
         self.result_audio[start:end] = result
         self.result_audio_display[start:end] = result

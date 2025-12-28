@@ -101,7 +101,9 @@ TRANSLATIONS = {
     "total operations:": {"ru": "всего операций:", "zh": "总操作:"},
     "Operation": {"ru": "Операция", "zh": "操作"},
     "Multi-convert completed:": {"ru": "Мульти-конверт завершён:", "zh": "批量转换完成:"},
-    
+    "Crossfade:": {"ru": "Переход:", "zh": "淡入淡出:"},
+    "Linear blend": {"ru": "Линейное смешивание", "zh": "线性混合"},
+    "Smooth blend": {"ru": "Плавное смешивание", "zh": "平滑混合"},
     "Original": {"ru": "Исходное", "zh": "原始"},
     "Version": {"ru": "Версия", "zh": "版本"},
     "Result": {"ru": "Результат", "zh": "结果"},
