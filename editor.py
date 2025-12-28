@@ -13,6 +13,7 @@ from history import HistoryManager
 
 SNAP_THRESHOLD_PX = 10
 BLEND_VALUES = [0, 15, 30, 60, 120]
+CONVERT_PADDING_MS = 128
 
 
 class EditorTab:
@@ -1766,6 +1767,9 @@ class EditorTab:
                     self.parent.after(0, lambda: self.log(tr("Fragment too short")))
                     return
                 
+                padding_samples = int(self.sr * CONVERT_PADDING_MS / 1000)
+                send_end = min(end + padding_samples, self.total_samples)
+                
                 import soundfile as sf
                 project_dir = self._get_project_dir()
                 tmp_dir = project_dir if project_dir else self.get_output_dir()
@@ -1774,8 +1778,7 @@ class EditorTab:
                 
                 tmp_in = os.path.join(tmp_dir, "_temp_in.wav")
                 tmp_out = os.path.join(tmp_dir, "_temp_out.wav")
-                # Для конвертации обязатено нужно использовать source_audio, а не source_audio_display
-                sf.write(tmp_in, self._get_source_for_convert(start, end), self.sr)
+                sf.write(tmp_in, self._get_source_for_convert(start, send_end), self.sr)
                 
                 self.parent.after(0, lambda: self.log(f"{tr('Converting')} {(end-start)/self.sr:.2f}s..."))
                 self.set_progress(30, tr("Conversion..."))
