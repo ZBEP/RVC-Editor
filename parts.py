@@ -46,6 +46,8 @@ class PartGroup:
             params = {}
         params["original_start"] = self.start
         params["original_end"] = self.end
+        params["wav_start"] = self.start
+        params["wav_end"] = self.start + len(audio_data)
         
         self.version_params.append(params)
         self.active_idx = len(self.versions) - 1

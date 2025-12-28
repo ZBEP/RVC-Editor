@@ -13,7 +13,7 @@ from history import HistoryManager
 
 SNAP_THRESHOLD_PX = 10
 BLEND_VALUES = [0, 15, 30, 60, 120]
-CONVERT_PADDING_MS = 128
+CONVERT_PADDING_MS = 256 # Может изменяться и быть положительным, отрицательным
 
 
 class EditorTab:
@@ -348,7 +348,7 @@ class EditorTab:
         name = tr("Linear blend") if self.crossfade_type == 0 else tr("Smooth blend")
         self.crossfade_btn.config(text=name)
     
-    def _write_audio(self, data, start, fade_ms=0):
+    def _write_audio(self, data, start, fade_ms=0, crossfade_rel=None):
         if data is None or len(data) == 0:
             return
         
@@ -378,9 +378,16 @@ class EditorTab:
         if np.any(np.abs(old_left) > 0.0001):
             result[:fade_samples] = old_left * fade_out + result[:fade_samples] * fade_in
         
-        old_right = self.result_audio[end - fade_samples:end].copy()
-        if np.any(np.abs(old_right) > 0.0001):
-            result[-fade_samples:] = result[-fade_samples:] * fade_out + old_right * fade_in
+        if crossfade_rel is None:
+            crossfade_rel = write_len
+        crossfade_rel = min(crossfade_rel, write_len)
+        
+        if crossfade_rel > fade_samples:
+            right_abs = start + crossfade_rel
+            old_right = self.result_audio[right_abs - fade_samples:right_abs].copy()
+            if np.any(np.abs(old_right) > 0.0001):
+                fade_start = crossfade_rel - fade_samples
+                result[fade_start:crossfade_rel] = result[fade_start:crossfade_rel] * fade_out + old_right * fade_in
         
         self.result_audio[start:end] = result
         self.result_audio_display[start:end] = result
@@ -1058,8 +1065,11 @@ class EditorTab:
             return
         
         write_data = data[:write_len]
-        write_end = group.start + write_len
         is_base = group.has_base and group.active_idx == 0
+        
+        params = group.get_params()
+        wav_end = params.get("wav_end", group.end) if params else group.end
+        crossfade_rel = min(wav_end - group.start, write_len)
         
         need_fade = blend > 0 and (not is_base or (group.volume_db != 0 and not skip_vol))
         need_tail = write_len < max_len and not is_base
@@ -1086,7 +1096,7 @@ class EditorTab:
                     current = max(current, occ_end)
                 
                 if current < write_len:
-                    segments.append((group.start + current, write_end, current, write_len))
+                    segments.append((group.start + current, group.start + write_len, current, write_len))
                 
                 for i, (abs_s, abs_e, d_s, d_e) in enumerate(segments):
                     seg_data = write_data[d_s:d_e]
@@ -1100,10 +1110,14 @@ class EditorTab:
                         
                         is_first = (i == 0)
                         is_last = (i == len(segments) - 1)
+                        seg_crossfade = None
+                        if is_last and crossfade_rel > d_s and crossfade_rel <= d_e:
+                            seg_crossfade = crossfade_rel - d_s
+                        
                         if is_first or is_last:
                             self._write_audio_segment(seg_data, abs_s, 
                                                      fade_left=is_first, fade_right=is_last,
-                                                     fade_ms=use_fade)
+                                                     fade_ms=use_fade, crossfade_rel=seg_crossfade)
                         else:
                             self.result_audio[abs_s:abs_e] = seg_data
                             self.result_audio_display[abs_s:abs_e] = seg_data
@@ -1115,13 +1129,13 @@ class EditorTab:
                     base_len = min(len(base_data), max_len)
                     self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
                     self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
-                self._write_audio(write_data, group.start, fade_ms=use_fade)
+                self._write_audio(write_data, group.start, fade_ms=use_fade, crossfade_rel=crossfade_rel)
         else:
             if use_fade > 0 and base_data is not None:
                 base_len = min(len(base_data), max_len)
                 self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
                 self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
-            self._write_audio(write_data, group.start, fade_ms=use_fade)
+            self._write_audio(write_data, group.start, fade_ms=use_fade, crossfade_rel=crossfade_rel)
         
         if need_tail and base_data is not None:
             tail_start = write_len
@@ -1146,7 +1160,7 @@ class EditorTab:
         self._compute_overwritten_ranges()
         self._redraw_result()
     
-    def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None):
+    def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None, crossfade_rel=None):
         if fade_ms is None:
             fade_ms = self.blend_mode
             
@@ -1173,9 +1187,16 @@ class EditorTab:
                 result[:fade_samples] = old_left * fade_out + result[:fade_samples] * fade_in
         
         if fade_right:
-            old_right = self.result_audio[end - fade_samples:end].copy()
-            if np.any(np.abs(old_right) > 0.0001):
-                result[-fade_samples:] = result[-fade_samples:] * fade_out + old_right * fade_in
+            if crossfade_rel is None:
+                crossfade_rel = write_len
+            crossfade_rel = min(crossfade_rel, write_len)
+            
+            if crossfade_rel > fade_samples:
+                right_abs = start + crossfade_rel
+                old_right = self.result_audio[right_abs - fade_samples:right_abs].copy()
+                if np.any(np.abs(old_right) > 0.0001):
+                    fade_start = crossfade_rel - fade_samples
+                    result[fade_start:crossfade_rel] = result[fade_start:crossfade_rel] * fade_out + old_right * fade_in
         
         self.result_audio[start:end] = result
         self.result_audio_display[start:end] = result
