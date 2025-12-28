@@ -305,7 +305,20 @@ class EditorTab:
         if part.has_base and idx == 0:
             return self._compute_base_for_part(part)
         
-        return part.get_data(idx)
+        data = part.get_data(idx)
+        if data is None:
+            return None
+        
+        nan_mask = np.isnan(data)
+        if np.any(nan_mask):
+            base = self._compute_base_for_part(part)
+            if base is not None and len(base) == len(data):
+                data = data.copy()
+                data[nan_mask] = base[nan_mask]
+            else:
+                data = np.nan_to_num(data, nan=0.0)
+        
+        return data
     
     def _set_blend(self, value):
         self.blend_mode = value

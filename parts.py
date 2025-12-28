@@ -41,6 +41,12 @@ class PartGroup:
         path = os.path.join(self.parts_dir, f"{self.id}_v{idx}.wav")
         sf.write(path, audio_data, self.sr)
         self.versions.append(path)
+        
+        if params is None:
+            params = {}
+        params["original_start"] = self.start
+        params["original_end"] = self.end
+        
         self.version_params.append(params)
         self.active_idx = len(self.versions) - 1
         return self.active_idx
@@ -61,13 +67,44 @@ class PartGroup:
         if path == "__COMPUTED_BASE__":
             return None
         
+        current_len = self.end - self.start
+        
         if path == "__SILENT__":
-            return np.zeros(self.end - self.start, dtype=np.float32)
+            return np.zeros(current_len, dtype=np.float32)
         
         if path and os.path.exists(path):
             import soundfile as sf
             data, _ = sf.read(path)
-            return data.astype(np.float32)
+            data = data.astype(np.float32)
+            
+            params = self.version_params[idx] if idx < len(self.version_params) else None
+            original_start = self.start
+            original_end = self.end
+            
+            if params:
+                orig_s = params.get("original_start")
+                orig_e = params.get("original_end")
+                if orig_s is not None:
+                    original_start = orig_s
+                if orig_e is not None:
+                    original_end = orig_e
+            
+            result = np.full(current_len, np.nan, dtype=np.float32)
+            
+            overlap_start = max(self.start, original_start)
+            overlap_end = min(self.end, original_end)
+            
+            if overlap_start < overlap_end:
+                result_pos = overlap_start - self.start
+                data_pos = overlap_start - original_start
+                copy_len = overlap_end - overlap_start
+                
+                if 0 <= data_pos < len(data):
+                    actual_copy = min(copy_len, len(data) - data_pos, current_len - result_pos)
+                    if actual_copy > 0:
+                        result[result_pos:result_pos + actual_copy] = data[data_pos:data_pos + actual_copy]
+            
+            return result
         return None
     
     def get_base_data(self):
