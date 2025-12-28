@@ -24,6 +24,7 @@ class PartGroup:
         self.last_preserve = True
         self.apply_order = 0
         self.volume_db = 0
+        self.overwritten_ranges = []
     
     def set_base(self):
         if self.versions:

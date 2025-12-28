@@ -97,6 +97,8 @@ class EditorTab:
         
         for part in sorted_parts:
             self._apply_version_data(part, part.last_preserve, part.last_blend)
+        
+        self._compute_overwritten_ranges()
     
     def _create_snapshot(self):
         return {
@@ -478,6 +480,7 @@ class EditorTab:
             if self.part_groups:
                 self._apply_counter = max(g.apply_order for g in self.part_groups)
             
+            self._compute_overwritten_ranges()
             self.log(tr("Project loaded"))
             return True
             
@@ -501,6 +504,49 @@ class EditorTab:
             if not placed:
                 g.level = len(level_ends)
                 level_ends.append(g.end)
+    
+    def _merge_ranges(self, ranges):
+        if not ranges:
+            return []
+        sorted_ranges = sorted(ranges)
+        merged = [sorted_ranges[0]]
+        for start, end in sorted_ranges[1:]:
+            if start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def _compute_overwritten_ranges(self):
+        for part in self.part_groups:
+            part.overwritten_ranges = []
+            for other in self.part_groups:
+                if other.id == part.id:
+                    continue
+                if other.has_base and other.active_idx == 0:
+                    continue
+                
+                overlap_start = max(part.start, other.start)
+                overlap_end = min(part.end, other.end)
+                if overlap_start >= overlap_end:
+                    continue
+                
+                other_overwrites_part = False
+                
+                if other.apply_order > part.apply_order:
+                    part_nested_in_other = (part.start >= other.start and part.end <= other.end)
+                    if not part_nested_in_other or not other.last_preserve:
+                        other_overwrites_part = True
+                else:
+                    other_nested_in_part = (other.start >= part.start and other.end <= part.end)
+                    if other_nested_in_part and part.last_preserve:
+                        other_overwrites_part = True
+                
+                if other_overwrites_part:
+                    part.overwritten_ranges.append((overlap_start, overlap_end))
+            
+            if len(part.overwritten_ranges) > 1:
+                part.overwritten_ranges = self._merge_ranges(part.overwritten_ranges)
     
     def on_tab_activated(self):
         saved = self.get_editor_file()
@@ -1055,6 +1101,7 @@ class EditorTab:
             group.apply_order = self._apply_counter
         
         self._apply_version_data(group, preserve_nested, blend)
+        self._compute_overwritten_ranges()
         self._redraw_result()
     
     def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None):
@@ -1208,6 +1255,7 @@ class EditorTab:
         if part in self.part_groups:
             self.part_groups.remove(part)
         
+        self._compute_overwritten_ranges()
         self._push_snapshot()
         self._save_project()
         

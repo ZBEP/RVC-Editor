@@ -151,14 +151,21 @@ class WaveformCanvas(tk.Canvas):
                 y2 = y1 + PART_ROW_HEIGHT - 2
                 
                 if not g.has_base and len(g.versions) == 1:
-                    fill, outline = '#202020', '#444'
+                    fill, outline = '#303030', ''
                 elif g.has_base and g.active_idx == 0:
-                    fill, outline = '#606060', '#444'
+                    fill, outline = '#303030', ''
                 else:
-                    fill, outline = '#9b59b6', '#8e44ad'
+                    fill, outline = '#9b59b6', ''
                 
                 x1_c, x2_c = max(0, gx1), min(w, gx2)
                 self.create_rectangle(x1_c, y1, x2_c, y2, fill=fill, outline=outline, tags='overlay')
+                
+                if g.overwritten_ranges:
+                    for abs_start, abs_end in g.overwritten_ranges:
+                        ox1 = max(x1_c, ed._s2x(abs_start, w))
+                        ox2 = min(x2_c, ed._s2x(abs_end, w))
+                        if ox2 > ox1:
+                            self.create_rectangle(ox1, y1, ox2, y2, fill='#303030', outline='', tags='overlay')
                 
                 if (x2_c - x1_c) > 60:
                     cx = (x1_c + x2_c) // 2
@@ -368,6 +375,7 @@ class WaveformCanvas(tk.Canvas):
             self._drag_start_data = None
             
             if changed:
+                ed._compute_overwritten_ranges()
                 ed._push_snapshot()
             ed._redraw()
             ed._save_project()
