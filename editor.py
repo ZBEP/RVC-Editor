@@ -13,7 +13,7 @@ from history import HistoryManager
 
 SNAP_THRESHOLD_PX = 10
 BLEND_VALUES = [0, 15, 30, 60, 120]
-CONVERT_PADDING_MS = 256 # Может изменяться и быть положительным, отрицательным
+CONVERT_PADDING_MS = 128
 
 
 class EditorTab:
