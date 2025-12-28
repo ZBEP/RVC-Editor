@@ -130,7 +130,7 @@ class WaveformCanvas(tk.Canvas):
             x1 = ed._s2x(min(ed.sel_start, ed.sel_end), w)
             x2 = ed._s2x(max(ed.sel_start, ed.sel_end), w)
             self.create_rectangle(x1, 0, x2, h, fill='#2d4a6f', outline='#4a7ab0', 
-                                stipple='gray50', tags='overlay')
+                                stipple='gray25', tags='overlay')
         
         if not self.is_result:
             for i, marker in enumerate(ed.markers):
@@ -177,6 +177,15 @@ class WaveformCanvas(tk.Canvas):
                         skip_vol = g.has_base and g.active_idx == 0 and len(g.versions) > 1
                         vol_str = f"({g.volume_db:+d} dB)" if skip_vol else f"{g.volume_db:+d} dB"
                         txt = (txt + " " if txt else "") + vol_str
+                    if txt:
+                        self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff', 
+                                       font=('Consolas', 7), tags='overlay')
+                elif (x2_c - x1_c) > 20:
+                    cx = (x1_c + x2_c) // 2
+                    if g.has_base:
+                        txt = "" if g.active_idx == 0 else str(g.active_idx)
+                    else:
+                        txt = str(g.active_idx + 1) if len(g.versions) > 1 else ""
                     if txt:
                         self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff', 
                                        font=('Consolas', 7), tags='overlay')
