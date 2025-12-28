@@ -272,6 +272,7 @@ class WaveformCanvas(tk.Canvas):
         if not self.is_result or not self.editor.part_groups:
             return None
         w = self.winfo_width()
+        candidates = []
         for g in self.editor.part_groups:
             y1 = PART_TOP_MARGIN + g.level * PART_ROW_HEIGHT
             y2 = y1 + PART_ROW_HEIGHT
@@ -280,10 +281,28 @@ class WaveformCanvas(tk.Canvas):
             start_x = self.editor._s2x(g.start, w)
             end_x = self.editor._s2x(g.end, w)
             if abs(x - start_x) <= threshold:
-                return (g, 'start')
+                candidates.append((g, 'start', start_x))
             if abs(x - end_x) <= threshold:
-                return (g, 'end')
-        return None
+                candidates.append((g, 'end', end_x))
+        
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return (candidates[0][0], candidates[0][1])
+        
+        candidates.sort(key=lambda c: abs(x - c[2]))
+        best_x = candidates[0][2]
+        same_pos = [c for c in candidates if abs(c[2] - best_x) < 2]
+        
+        if len(same_pos) == 1:
+            return (same_pos[0][0], same_pos[0][1])
+        
+        prefer = 'end' if x <= best_x else 'start'
+        for c in same_pos:
+            if c[1] == prefer:
+                return (c[0], c[1])
+        
+        return (same_pos[0][0], same_pos[0][1])
     
     def _on_motion(self, e):
         ed = self.editor

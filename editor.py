@@ -1229,10 +1229,19 @@ class EditorTab:
         kept_path = part.versions[part.active_idx]
         kept_params = part.version_params[part.active_idx] if part.active_idx < len(part.version_params) else None
         
-        part.versions = [kept_path]
-        part.version_params = [kept_params]
-        part.active_idx = 0
-        part.has_base = False
+        real_count = len(part.versions) - 1 if part.has_base else len(part.versions)
+        
+        if part.has_base and real_count > 1 and part.active_idx > 0:
+            base_path = part.versions[0]
+            base_params = part.version_params[0] if part.version_params else None
+            part.versions = [base_path, kept_path]
+            part.version_params = [base_params, kept_params]
+            part.active_idx = 1
+        else:
+            part.versions = [kept_path]
+            part.version_params = [kept_params]
+            part.active_idx = 0
+            part.has_base = False
         
         self._push_snapshot()
         self._save_project()
