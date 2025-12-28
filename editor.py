@@ -1026,19 +1026,18 @@ class EditorTab:
         
         write_data = data[:write_len]
         write_end = group.start + write_len
-        
         is_base = group.has_base and group.active_idx == 0
-        use_fade = 0
+        
+        need_fade = blend > 0 and (not is_base or (group.volume_db != 0 and not skip_vol))
+        need_tail = write_len < max_len and not is_base
+        
         base_data = None
-        
-        should_crossfade = blend > 0 and (not is_base or (group.volume_db != 0 and not skip_vol))
-        
-        if should_crossfade:
+        if need_fade or need_tail:
             base_data = self._compute_base_for_part(group)
-            if base_data is not None and np.any(np.abs(base_data) > 0.0001):
-                use_fade = blend
-            else:
-                base_data = None
+        
+        use_fade = 0
+        if need_fade and base_data is not None and np.any(np.abs(base_data) > 0.0001):
+            use_fade = blend
         
         if preserve_nested:
             nested = self._get_nested_parts(group)
@@ -1090,7 +1089,17 @@ class EditorTab:
                 self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
                 self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
             self._write_audio(write_data, group.start, fade_ms=use_fade)
-    
+        
+        if need_tail and base_data is not None:
+            tail_start = write_len
+            tail_end = min(len(base_data), max_len)
+            if tail_end > tail_start:
+                tail_data = base_data[tail_start:tail_end]
+                if np.any(np.abs(tail_data) > 0.0001):
+                    abs_start = group.start + tail_start
+                    self.result_audio[abs_start:abs_start + len(tail_data)] = tail_data
+                    self.result_audio_display[abs_start:abs_start + len(tail_data)] = tail_data
+                    
     def _apply_version(self, group, preserve_nested=False, blend_override=None, update_state=True):
         blend = blend_override if blend_override is not None else self.blend_mode
         
