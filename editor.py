@@ -1471,7 +1471,7 @@ class EditorTab:
             
     def _redraw(self):
         self.source_wf.draw()
-        self.result_wf._wf_cache_key = None
+        #self.result_wf._wf_cache_key = None
         self.result_wf.draw()
         if self.play_pos is not None or self.source_wf._last_playhead_x is not None:
             self.source_wf.update_playhead()
