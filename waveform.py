@@ -362,7 +362,7 @@ class WaveformCanvas(tk.Canvas):
         
     def _on_drag(self, e):
         w = self.winfo_width()
-        MIN_PART_SIZE = 2000
+        MIN_PART_SIZE = 256
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
@@ -381,7 +381,7 @@ class WaveformCanvas(tk.Canvas):
         
     def _on_release(self, e):
         ed = self.editor
-        MIN_PART_SIZE = 2000
+        MIN_PART_SIZE = 256
         
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
