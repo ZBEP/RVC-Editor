@@ -180,7 +180,7 @@ class WaveformCanvas(tk.Canvas):
                     if txt:
                         self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff', 
                                        font=('Consolas', 7), tags='overlay')
-                elif (x2_c - x1_c) > 20:
+                elif (x2_c - x1_c) > 10:
                     cx = (x1_c + x2_c) // 2
                     if g.has_base:
                         txt = "" if g.active_idx == 0 else str(g.active_idx)
