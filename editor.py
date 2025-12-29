@@ -971,6 +971,7 @@ class EditorTab:
             self._push_snapshot()
             self._save_project()
             self.log(tr("Part deleted, data restored"))
+            self.result_wf._wf_cache_key = None
             self._redraw()
             self._play_after_action(pos, end)
             return "break"
@@ -1362,6 +1363,7 @@ class EditorTab:
         self._save_project()
         
         self.log(tr("Part deleted, data restored"))
+        self.result_wf._wf_cache_key = None
         self._redraw()
     
     def _delete_part_files(self, part):
@@ -1471,7 +1473,6 @@ class EditorTab:
             
     def _redraw(self):
         self.source_wf.draw()
-        #self.result_wf._wf_cache_key = None
         self.result_wf.draw()
         if self.play_pos is not None or self.source_wf._last_playhead_x is not None:
             self.source_wf.update_playhead()
