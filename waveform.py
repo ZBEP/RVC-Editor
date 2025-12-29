@@ -71,17 +71,7 @@ class WaveformCanvas(tk.Canvas):
         self.delete('overlay')
         self._draw_overlay(w, h)
 
-    # -------------------------
-    # Waveform rendering (Envelope: min/max like Audacity)
-    # -------------------------
-
     def _compute_envelope_minmax(self, audio: np.ndarray, offset: int, visible: int, width: int):
-        """
-        Returns (mn, mx) arrays of length = width, where each element is
-        min/max of the corresponding time slice.
-
-        Uses block reduction (reshape) to avoid per-pixel slicing.
-        """
         if audio is None or width <= 0:
             return None, None
 
@@ -97,26 +87,18 @@ class WaveformCanvas(tk.Canvas):
         if seg_len <= 0:
             return None, None
 
-        # Make sure it's 1D float array
         segment = np.asarray(segment, dtype=np.float32)
-
-        # block size so that segment can be represented by exactly "width" columns
         block = int(np.ceil(seg_len / max(1, width)))
         block = max(1, block)
 
         target_len = block * width
         if target_len != seg_len:
-            # Pad with NaN to avoid introducing fake zeros into min/max
             pad = target_len - seg_len
             segment = np.pad(segment, (0, pad), mode='constant', constant_values=np.nan)
 
-        # Shape: (width, block)
         seg2 = segment.reshape(width, block)
-
         mn = np.nanmin(seg2, axis=1)
         mx = np.nanmax(seg2, axis=1)
-
-        # Pixels that were fully padded become NaN => turn into 0
         mn = np.nan_to_num(mn, nan=0.0)
         mx = np.nan_to_num(mx, nan=0.0)
 
@@ -135,18 +117,13 @@ class WaveformCanvas(tk.Canvas):
             return
 
         self._wf_cache_key = cache_key
-
         img = Image.new('RGB', (w, h), (30, 30, 30))
         draw = ImageDraw.Draw(img)
-
         mid = h // 2
         draw.line([(0, mid), (w, mid)], fill=(68, 68, 68))
-
         if audio is not None and ed.total_samples > 0:
-            # How many samples are visible at current zoom
             visible = int(ed.total_samples / max(1e-9, ed.zoom))
             visible = max(1, visible)
-
             mn, mx = self._compute_envelope_minmax(
                 audio=audio,
                 offset=int(ed.offset),
@@ -156,14 +133,9 @@ class WaveformCanvas(tk.Canvas):
 
             if mn is not None and mx is not None:
                 color_rgb = (231, 76, 60) if self.is_result else (93, 173, 226)
-
-                # Scale amplitude to pixels
                 scale = mid * 0.9
                 if scale < 1:
                     scale = 1
-
-                # Draw vertical min/max lines
-                # (y grows downward in image coordinates)
                 for x in range(w):
                     y_top = int(mid - (mx[x] * scale))
                     y_bot = int(mid - (mn[x] * scale))
@@ -171,13 +143,11 @@ class WaveformCanvas(tk.Canvas):
                     if y_top > y_bot:
                         y_top, y_bot = y_bot, y_top
 
-                    # Clip
                     if y_bot < 0 or y_top >= h:
                         continue
                     y_top = max(0, min(h - 1, y_top))
                     y_bot = max(0, min(h - 1, y_bot))
 
-                    # If almost flat, draw at least 1px
                     if y_bot == y_top:
                         draw.point((x, y_top), fill=color_rgb)
                     else:
@@ -189,10 +159,6 @@ class WaveformCanvas(tk.Canvas):
             self.itemconfig(self._wf_image_id, image=self._wf_photo)
         else:
             self._wf_image_id = self.create_image(0, 0, anchor='nw', image=self._wf_photo, tags='waveform')
-
-    # -------------------------
-    # Overlay / UI
-    # -------------------------
 
     def _draw_overlay(self, w, h):
         ed = self.editor
@@ -473,14 +439,11 @@ class WaveformCanvas(tk.Canvas):
     def _on_release(self, e):
         ed = self.editor
         MIN_PART_SIZE = 256
-
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             w = self.winfo_width()
-
             sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
             snapped = ed._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True, exclude_part=part)
-
             if edge_type == 'start':
                 new_start = max(0, min(snapped, part.end - MIN_PART_SIZE))
                 changed = part.start != new_start
@@ -489,10 +452,8 @@ class WaveformCanvas(tk.Canvas):
                 new_end = min(ed.total_samples, max(snapped, part.start + MIN_PART_SIZE))
                 changed = part.end != new_end
                 part.end = new_end
-
             self._drag_part_edge = None
             self._drag_start_data = None
-
             if changed:
                 ed._compute_overwritten_ranges()
                 ed._push_snapshot()
@@ -504,16 +465,12 @@ class WaveformCanvas(tk.Canvas):
             w = self.winfo_width()
             sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
             snapped = ed._snap_to_points(sample, w, snap_to_markers=False, snap_to_selection=True)
-
             old_pos = ed.markers[self._drag_marker]
             changed = snapped != old_pos
-
             ed.markers[self._drag_marker] = snapped
             ed.markers.sort()
-
             self._drag_marker = None
             self._drag_start_data = None
-
             if changed:
                 ed._push_snapshot()
             ed._redraw()
