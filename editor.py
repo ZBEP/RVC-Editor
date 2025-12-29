@@ -1174,6 +1174,16 @@ class EditorTab:
             group.apply_order = self._apply_counter
         
         self._apply_version_data(group, preserve_nested, blend, cf_type)
+        
+        if preserve_nested:
+            nested = self._get_nested_parts(group)
+            if nested:
+                nested.sort(key=lambda p: p.apply_order)
+                for part in nested:
+                    self._apply_counter += 1
+                    part.apply_order = self._apply_counter
+                    self._apply_version_data(part, part.last_preserve, part.last_blend, part.last_crossfade_type)
+        
         self._compute_overwritten_ranges()
         self._redraw_result()
     
@@ -1221,6 +1231,10 @@ class EditorTab:
     def _get_nested_parts(self, part):
         return [g for g in self.part_groups 
                 if g.id != part.id and g.start >= part.start and g.end <= part.end]
+
+    def _get_overlapping_parts(self, part):
+        return [g for g in self.part_groups 
+                if g.id != part.id and g.start < part.end and g.end > part.start]
 
     def _is_replace_all_mode(self):
         try:
