@@ -21,6 +21,7 @@ class PartGroup:
         self.has_base = False
         self.created_at = time.time()
         self.last_blend = 0
+        self.last_crossfade_type = 0
         self.last_preserve = True
         self.apply_order = 0
         self.volume_db = 0
@@ -125,6 +126,7 @@ class PartGroup:
             "versions": versions_out,
             "version_params": self.version_params,
             "last_blend": self.last_blend,
+            "last_crossfade_type": self.last_crossfade_type,
             "last_preserve": self.last_preserve,
             "apply_order": self.apply_order,
             "volume_db": self.volume_db

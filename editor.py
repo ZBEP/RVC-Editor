@@ -98,7 +98,7 @@ class EditorTab:
         sorted_parts = sorted(self.part_groups, key=lambda p: p.apply_order)
         
         for part in sorted_parts:
-            self._apply_version_data(part, part.last_preserve, part.last_blend)
+            self._apply_version_data(part, part.last_preserve, part.last_blend, part.last_crossfade_type)
         
         self._compute_overwritten_ranges()
     
@@ -148,6 +148,7 @@ class EditorTab:
                 existing.end = p["end"]
                 existing.has_base = p.get("has_base", False)
                 existing.last_blend = p.get("last_blend", 0)
+                existing.last_crossfade_type = p.get("last_crossfade_type", 0)
                 existing.last_preserve = p.get("last_preserve", True)
                 existing.apply_order = p.get("apply_order", 0)
                 existing.volume_db = p.get("volume_db", 0)
@@ -166,6 +167,7 @@ class EditorTab:
                 g.active_idx = min(p["active_idx"], max(0, len(versions) - 1))
                 g.has_base = p.get("has_base", False)
                 g.last_blend = p.get("last_blend", 0)
+                g.last_crossfade_type = p.get("last_crossfade_type", 0)
                 g.last_preserve = p.get("last_preserve", True)
                 g.apply_order = p.get("apply_order", 0)
                 g.volume_db = p.get("volume_db", 0)
@@ -261,9 +263,11 @@ class EditorTab:
             return None
         return audio.mean(axis=1).astype(np.float32) if len(audio.shape) > 1 else audio.astype(np.float32)
     
-    def _get_fade_curves(self, length):
+    def _get_fade_curves(self, length, crossfade_type=None):
+        if crossfade_type is None:
+            crossfade_type = self.crossfade_type
         t = np.linspace(0, 1, length, dtype=np.float32)
-        if self.crossfade_type == 0:
+        if crossfade_type == 0:
             return t, 1 - t
         else:
             return np.sin(t * np.pi / 2), np.cos(t * np.pi / 2)
@@ -348,7 +352,7 @@ class EditorTab:
         name = tr("Linear blend") if self.crossfade_type == 0 else tr("Smooth blend")
         self.crossfade_btn.config(text=name)
     
-    def _write_audio(self, data, start, fade_ms=0, cf_right=None, cf_left=0):
+    def _write_audio(self, data, start, fade_ms=0, cf_right=None, cf_left=0, crossfade_type=None):
         if data is None or len(data) == 0:
             return
         
@@ -372,7 +376,7 @@ class EditorTab:
         fade_samples = max(20, fade_samples)
         
         result = data.copy()
-        fade_in, fade_out = self._get_fade_curves(fade_samples)
+        fade_in, fade_out = self._get_fade_curves(fade_samples, crossfade_type)
         
         if cf_left + fade_samples <= write_len:
             old_left = self.result_audio[start + cf_left:start + cf_left + fade_samples].copy()
@@ -511,6 +515,7 @@ class EditorTab:
                 g.active_idx = min(p["active_idx"], len(versions) - 1)
                 g.has_base = p.get("has_base", False)
                 g.last_blend = p.get("last_blend", 0)
+                g.last_crossfade_type = p.get("last_crossfade_type", 0)
                 g.last_preserve = p.get("last_preserve", True)
                 g.apply_order = p.get("apply_order", 0)
                 g.volume_db = p.get("volume_db", 0)
@@ -1049,7 +1054,7 @@ class EditorTab:
         self._is_playing = True
         self.play_btn.config(text="⏸")
     
-    def _apply_version_data(self, group, preserve_nested=False, blend_override=None):
+    def _apply_version_data(self, group, preserve_nested=False, blend_override=None, crossfade_override=None):
         data = self._get_part_data(group)
         if data is None:
             return
@@ -1060,6 +1065,7 @@ class EditorTab:
             data = data * gain
         
         blend = blend_override if blend_override is not None else self.blend_mode
+        cf_type = crossfade_override if crossfade_override is not None else self.crossfade_type
         max_len = group.end - group.start
         write_len = min(len(data), max_len)
         if write_len <= 0:
@@ -1126,7 +1132,7 @@ class EditorTab:
                             self._write_audio_segment(seg_data, abs_s, 
                                                      fade_left=is_first, fade_right=is_last,
                                                      fade_ms=use_fade, cf_right=seg_cf_right,
-                                                     cf_left=seg_cf_left)
+                                                     cf_left=seg_cf_left, crossfade_type=cf_type)
                         else:
                             self.result_audio[abs_s:abs_e] = seg_data
                             self.result_audio_display[abs_s:abs_e] = seg_data
@@ -1138,13 +1144,13 @@ class EditorTab:
                     base_len = min(len(base_data), max_len)
                     self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
                     self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
-                self._write_audio(write_data, group.start, fade_ms=use_fade, cf_right=cf_right, cf_left=cf_left)
+                self._write_audio(write_data, group.start, fade_ms=use_fade, cf_right=cf_right, cf_left=cf_left, crossfade_type=cf_type)
         else:
             if use_fade > 0 and base_data is not None:
                 base_len = min(len(base_data), max_len)
                 self.result_audio[group.start:group.start + base_len] = base_data[:base_len]
                 self.result_audio_display[group.start:group.start + base_len] = base_data[:base_len]
-            self._write_audio(write_data, group.start, fade_ms=use_fade, cf_right=cf_right, cf_left=cf_left)
+            self._write_audio(write_data, group.start, fade_ms=use_fade, cf_right=cf_right, cf_left=cf_left, crossfade_type=cf_type)
         
         if need_tail and base_data is not None:
             tail_start = write_len
@@ -1158,18 +1164,20 @@ class EditorTab:
                     
     def _apply_version(self, group, preserve_nested=False, blend_override=None, update_state=True):
         blend = blend_override if blend_override is not None else self.blend_mode
+        cf_type = self.crossfade_type
         
         if update_state:
             group.last_blend = blend
+            group.last_crossfade_type = cf_type
             group.last_preserve = preserve_nested
             self._apply_counter += 1
             group.apply_order = self._apply_counter
         
-        self._apply_version_data(group, preserve_nested, blend)
+        self._apply_version_data(group, preserve_nested, blend, cf_type)
         self._compute_overwritten_ranges()
         self._redraw_result()
     
-    def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None, cf_right=None, cf_left=0):
+    def _write_audio_segment(self, data, start, fade_left=True, fade_right=True, fade_ms=None, cf_right=None, cf_left=0, crossfade_type=None):
         if fade_ms is None:
             fade_ms = self.blend_mode
             
@@ -1188,7 +1196,7 @@ class EditorTab:
         fade_samples = max(20, fade_samples)
         
         result = data.copy()
-        fade_in, fade_out = self._get_fade_curves(fade_samples)
+        fade_in, fade_out = self._get_fade_curves(fade_samples, crossfade_type)
         
         if fade_left and cf_left + fade_samples <= write_len:
             old_left = self.result_audio[start + cf_left:start + cf_left + fade_samples].copy()
@@ -1762,6 +1770,7 @@ class EditorTab:
             self._apply_counter += 1
             new_part.apply_order = self._apply_counter
             new_part.last_blend = self.blend_mode
+            new_part.last_crossfade_type = self.crossfade_type
             new_part.last_preserve = False
             self.part_groups.append(new_part)
             
