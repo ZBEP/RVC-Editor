@@ -30,8 +30,8 @@ class RVCConverterGUI:
         
         self._init_variables()
         
-        os.makedirs(self.input_dir.get(), exist_ok=True)
-        os.makedirs(self.output_dir.get(), exist_ok=True)
+        os.makedirs(self._get_input_dir(), exist_ok=True)
+        os.makedirs(self._get_output_dir(), exist_ok=True)
         
         self.converter = None
         self.is_converting = False
@@ -75,7 +75,15 @@ class RVCConverterGUI:
         self.preset_load_model = tk.BooleanVar(value=s.get("preset_load_model", False))
         self.preset_load_pitch = tk.BooleanVar(value=s.get("preset_load_pitch", False))
         self.preset_load_f0 = tk.BooleanVar(value=s.get("preset_load_f0", False))
-    
+
+    def _get_input_dir(self):
+        val = self.input_dir.get().strip()
+        return val if val else INPUT_DIR
+
+    def _get_output_dir(self):
+        val = self.output_dir.get().strip()
+        return val if val else OUTPUT_DIR
+
     def _bind_hotkeys(self):
         for key in PRESET_KEYS:
             self.root.bind(f'<{key}>', lambda e, k=key: self._load_preset(k))
@@ -503,7 +511,7 @@ class RVCConverterGUI:
         self._update_crepe_visibility()
         
     def _update_files_info(self):
-        input_path = self.input_dir.get()
+        input_path = self._get_input_dir()
         if os.path.exists(input_path):
             files = [f for f in os.listdir(input_path) if f.lower().endswith(AUDIO_EXTENSIONS)]
             self.files_info_label.config(text=f"{tr('Audio files found:')} {len(files)}")
@@ -582,7 +590,7 @@ class RVCConverterGUI:
             self._get_converter_for_editor, 
             self.log, 
             self.set_progress,
-            lambda: self.output_dir.get(),
+            self._get_output_dir,
             lambda: self.saved_settings.get("editor_file", ""),
             self._set_editor_file,
             self._get_preset_info_for_editor,
@@ -635,22 +643,22 @@ class RVCConverterGUI:
         self.log(f"{tr('Models:')} {len(self.models_list)}, {tr('indexes:')} {len(self.indexes_list)}")
             
     def _browse_input_dir(self):
-        path = filedialog.askdirectory(initialdir=self.input_dir.get())
+        path = filedialog.askdirectory(initialdir=self._get_input_dir())
         if path:
             self.input_dir.set(path)
             
     def _open_input_dir(self):
-        path = self.input_dir.get()
+        path = self._get_input_dir()
         os.makedirs(path, exist_ok=True)
         os.startfile(path)
             
     def _browse_output_dir(self):
-        path = filedialog.askdirectory(initialdir=self.output_dir.get())
+        path = filedialog.askdirectory(initialdir=self._get_output_dir())
         if path:
             self.output_dir.set(path)
             
     def _open_output_dir(self):
-        path = self.output_dir.get()
+        path = self._get_output_dir()
         os.makedirs(path, exist_ok=True)
         os.startfile(path)
             
@@ -720,7 +728,7 @@ class RVCConverterGUI:
         }
         
     def _convert(self):
-        if not os.path.exists(self.input_dir.get()):
+        if not os.path.exists(self._get_input_dir()):
             messagebox.showwarning(tr("Warning"), tr("Input folder does not exist"))
             return
         if self.is_converting:
@@ -730,12 +738,14 @@ class RVCConverterGUI:
             self.is_converting = True
             self._set_buttons_state('disabled')
             try:
-                os.makedirs(self.output_dir.get(), exist_ok=True)
+                input_dir = self._get_input_dir()
+                output_dir = self._get_output_dir()
+                os.makedirs(output_dir, exist_ok=True)
                 if not self._ensure_model_loaded():
                     messagebox.showerror(tr("Error"), tr("Failed to load model"))
                     return
                 results = self.converter.convert_folder(
-                    self.input_dir.get(), self.output_dir.get(), **self._get_convert_params()
+                    input_dir, output_dir, **self._get_convert_params()
                 )
                 if not results:
                     self.files_info_label.config(text=tr("No files to convert"), foreground="orange")
@@ -757,7 +767,7 @@ class RVCConverterGUI:
         threading.Thread(target=thread, daemon=True).start()
         
     def _pack_convert(self):
-        if not os.path.exists(self.input_dir.get()):
+        if not os.path.exists(self._get_input_dir()):
             messagebox.showwarning(tr("Warning"), tr("Input folder does not exist"))
             return
         if self.is_converting:
@@ -774,9 +784,11 @@ class RVCConverterGUI:
                 if not self._ensure_model_loaded():
                     messagebox.showerror(tr("Error"), tr("Failed to load model"))
                     return
+                input_dir = self._get_input_dir()
+                output_dir = self._get_output_dir()
                 self.log(f"{tr('Multi-convert')}: {len(presets)} {tr('presets:')}")
                 results = self.converter.convert_pack(
-                    self.input_dir.get(), self.output_dir.get(), presets, **self._get_pack_params()
+                    input_dir, output_dir, presets, **self._get_pack_params()
                 )
                 if not results:
                     self.files_info_label.config(text=tr("No files to convert"), foreground="orange")

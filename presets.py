@@ -11,12 +11,12 @@ PRESET_KEYS = [f"F{i}" for i in range(1, 13)]
 DEFAULT_PRESET_VALUES = [
     # F1-F7: rmvpe
     {"f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.33, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
+    {"f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.5, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
+    {"f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.0, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
+    {"f0_method": "rmvpe", "index_rate": 0.5, "protect": 0.5, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
     {"f0_method": "rmvpe", "index_rate": 0.01, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
     {"f0_method": "rmvpe", "index_rate": 0.2, "protect": 0.0, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
     {"f0_method": "rmvpe", "index_rate": 0.2, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"f0_method": "rmvpe", "index_rate": 0.5, "protect": 0.5, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.0, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.5, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
     # F8-F11: mangio-crepe
     {"f0_method": "mangio-crepe", "index_rate": 0.9, "protect": 0.33, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
     {"f0_method": "mangio-crepe", "index_rate": 0.01, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
