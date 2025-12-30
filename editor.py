@@ -61,6 +61,7 @@ class EditorTab:
         self._stream_active = False
         self._is_converting = False
         self._apply_counter = 0
+        self._clipboard = None
         self.blend_mode = initial_blend_mode
         self.crossfade_type = initial_crossfade_type
         self.history = None
@@ -212,6 +213,12 @@ class EditorTab:
         ctrl = bool(e.state & 0x4)
         shift = bool(e.state & 0x1)
         
+        if kc == 67 and ctrl:
+            self._copy_selection()
+            return "break"
+        if kc == 86 and ctrl:
+            self._paste_at_cursor()
+            return "break"
         if kc == 73 and not ctrl:
             self._hotkey_marker()
             return "break"
@@ -1825,6 +1832,72 @@ class EditorTab:
         self._active_track = 'result'
         self._update_active_label()
         self.log(f"✓ {tr('Silent part created')}")
+        self._redraw()
+    
+    def _copy_selection(self):
+        if self.result_audio is None:
+            self.log(tr("No result to copy"))
+            return
+        if self.sel_start is None or abs(self.sel_end - self.sel_start) < 100:
+            self.log(tr("Select a region first"))
+            return
+        start, end = sorted([self.sel_start, self.sel_end])
+        self._clipboard = self.result_audio[start:end].copy()
+        self.log(f"{tr('Copied:')} {(end-start)/self.sr:.2f}s")
+    
+    def _paste_at_cursor(self):
+        if self._clipboard is None or len(self._clipboard) == 0:
+            self.log(tr("Nothing to paste"))
+            return
+        if self.cursor_pos is None:
+            self.log(tr("Place cursor first"))
+            return
+        
+        if self.result_audio is None or len(self.result_audio) != self.total_samples:
+            self.result_audio = np.zeros(self.total_samples, dtype=np.float32)
+            self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
+        
+        start = self.cursor_pos
+        end = min(start + len(self._clipboard), self.total_samples)
+        if end <= start:
+            return
+        
+        paste_data = self._clipboard[:end - start].copy()
+        existing_group = self._find_group(start, end)
+        preserve_nested = not self._is_replace_all_mode()
+        
+        if existing_group is None:
+            group = PartGroup(start, end, self._get_parts_dir(), self.sr)
+            self.part_groups.append(group)
+            if np.any(self.result_audio[start:end] != 0):
+                group.set_base()
+        else:
+            group = existing_group
+        
+        group.add_version(paste_data, {"pasted": True})
+        self._apply_version(group, preserve_nested, self.blend_mode)
+        self._push_snapshot()
+        self._save_project()
+        
+        self._active_track = 'result'
+        self._update_active_label()
+        self.log(f"{tr('Pasted:')} {(end-start)/self.sr:.2f}s")
+        self._redraw()
+    
+    def _finalize_part_move(self, part, delta):
+        part.version_params = [
+            {**params,
+             "original_start": params.get("original_start", part.start - delta) + delta,
+             "original_end": params.get("original_end", part.end - delta) + delta,
+             "wav_start": params.get("wav_start", part.start - delta) + delta,
+             "wav_end": params.get("wav_end", part.end - delta) + delta} if params else None
+            for params in part.version_params
+        ]
+        
+        self._rebuild_result_from_parts()
+        self._push_snapshot()
+        self._save_project()
+        self.log(f"{tr('Part moved:')} {delta/self.sr:+.2f}s")
         self._redraw()
     
     def _adjust_volume(self, delta):

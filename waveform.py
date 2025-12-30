@@ -180,6 +180,7 @@ class WaveformCanvas(tk.Canvas):
         self._drag_marker = None
         self._drag_part_edge = None
         self._drag_start_data = None
+        self._drag_part_move = None
         self._last_playhead_x = None
         self._last_size = (0, 0)
 
@@ -530,16 +531,16 @@ class WaveformCanvas(tk.Canvas):
 
     def _on_motion(self, e):
         ed = self.editor
-        if self.is_result and self._find_part_edge_at(e.x, e.y):
-            self.config(cursor='sb_h_double_arrow')
-            return
+        if self.is_result:
+            if self._find_part_edge_at(e.x, e.y):
+                self.config(cursor='sb_h_double_arrow')
+                return
+            if self._in_parts_zone(e.y) and self._find_part_at(e.x, e.y):
+                self.config(cursor='fleur')
+                return
         if (not self.is_result) and self._in_marker_zone(e.y):
             if self._find_marker_at(e.x) is not None:
                 self.config(cursor='sb_h_double_arrow')
-                return
-        if self._in_parts_zone(e.y):
-            if self._find_part_at(e.x, e.y) is not None:
-                self.config(cursor='hand2')
                 return
         if ed.sel_start is not None:
             w = self.winfo_width()
@@ -560,6 +561,17 @@ class WaveformCanvas(tk.Canvas):
                 self._drag_start_data = {"part_id": part.id, "old_start": part.start, "old_end": part.end}
                 self._drag_part_edge = edge
                 return
+            if self._in_parts_zone(e.y):
+                part = self._find_part_at(e.x, e.y)
+                if part is not None:
+                    sample = ed._x2s(e.x, w)
+                    self._drag_part_move = {
+                        "part": part,
+                        "start_sample": sample,
+                        "old_start": part.start,
+                        "old_end": part.end
+                    }
+                    return
         if (not self.is_result) and self._in_marker_zone(e.y):
             marker_idx = self._find_marker_at(e.x)
             if marker_idx is not None:
@@ -587,6 +599,24 @@ class WaveformCanvas(tk.Canvas):
     def _on_drag(self, e):
         w = self.winfo_width()
         MIN_PART_SIZE = 256
+        if self._drag_part_move is not None:
+            data = self._drag_part_move
+            part = data["part"]
+            current_sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
+            delta = current_sample - data["start_sample"]
+            new_start = data["old_start"] + delta
+            new_end = data["old_end"] + delta
+            part_size = data["old_end"] - data["old_start"]
+            if new_start < 0:
+                new_start = 0
+                new_end = part_size
+            if new_end > self.editor.total_samples:
+                new_end = self.editor.total_samples
+                new_start = new_end - part_size
+            part.start = new_start
+            part.end = new_end
+            self.editor._redraw()
+            return
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
@@ -606,6 +636,46 @@ class WaveformCanvas(tk.Canvas):
     def _on_release(self, e):
         ed = self.editor
         MIN_PART_SIZE = 256
+        
+        if self._drag_part_move is not None:
+            data = self._drag_part_move
+            part = data["part"]
+            w = self.winfo_width()
+            current_sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
+            delta = current_sample - data["start_sample"]
+            new_start = data["old_start"] + delta
+            new_end = data["old_end"] + delta
+            part_size = data["old_end"] - data["old_start"]
+            
+            if new_start < 0:
+                new_start = 0
+                new_end = part_size
+            if new_end > ed.total_samples:
+                new_end = ed.total_samples
+                new_start = new_end - part_size
+            
+            snapped_start = ed._snap_to_points(new_start, w, snap_to_markers=True, snap_to_selection=True, exclude_part=part)
+            snap_delta = snapped_start - new_start
+            new_start = snapped_start
+            new_end = new_end + snap_delta
+            
+            if new_end > ed.total_samples:
+                new_end = ed.total_samples
+                new_start = new_end - part_size
+            if new_start < 0:
+                new_start = 0
+                new_end = part_size
+            
+            final_delta = new_start - data["old_start"]
+            
+            if final_delta != 0:
+                part.start = new_start
+                part.end = new_end
+                ed._finalize_part_move(part, final_delta)
+            
+            self._drag_part_move = None
+            return
+        
         if self._drag_part_edge is not None:
             part, edge_type = self._drag_part_edge
             w = self.winfo_width()
@@ -645,7 +715,7 @@ class WaveformCanvas(tk.Canvas):
             return
 
         ed._on_release(self.winfo_width())
-
+        
     def _on_right_click(self, e):
         w = self.winfo_width()
         if (not self.is_result) and self._in_marker_zone(e.y):

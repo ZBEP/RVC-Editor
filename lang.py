@@ -147,7 +147,11 @@ TRANSLATIONS = {
     "File not found:": {"ru": "Файл не найден:", "zh": "文件未找到:"},
     "Load error:": {"ru": "Ошибка загрузки:", "zh": "加载错误:"},
     "base": {"ru": "база", "zh": "基础"},
-    
+    "Copied:": {"ru": "Скопировано:", "zh": "已复制:"},
+    "Pasted:": {"ru": "Вставлено:", "zh": "已粘贴:"},
+    "Nothing to paste": {"ru": "Нечего вставлять", "zh": "没有可粘贴的内容"},
+    "No result to copy": {"ru": "Нет результата для копирования", "zh": "没有可复制的结果"},
+    "Place cursor first": {"ru": "Сначала установите курсор", "zh": "请先放置光标"},
     "RVC Editor": {"ru": "RVC Editor", "zh": "RVC Editor"},
     "Log": {"ru": "Лог", "zh": "日志"},
     "Editor": {"ru": "Редактор", "zh": "编辑器"},
@@ -222,7 +226,7 @@ TRANSLATIONS = {
     "if model empty - unchanged": {"ru": "если модель пустая — не меняется", "zh": "如果模型为空则不变"},
     "Load pitch:": {"ru": "Загружать тон:", "zh": "加载音高:"},
     "Load F0 method:": {"ru": "Загружать F0 метод:", "zh": "加载F0方法:"},
-    
+    "Part moved:": {"ru": "Часть перемещена:", "zh": "片段已移动:"},
     "Preset save error:": {"ru": "Ошибка сохранения пресета:", "zh": "预设保存错误:"},
     "Missing:": {"ru": "Отсутствуют:", "zh": "缺少:"},
     "Press Enter...": {"ru": "Нажмите Enter...", "zh": "按Enter键..."},
