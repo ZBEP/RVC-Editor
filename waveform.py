@@ -569,7 +569,9 @@ class WaveformCanvas(tk.Canvas):
                         "part": part,
                         "start_sample": sample,
                         "old_start": part.start,
-                        "old_end": part.end
+                        "old_end": part.end,
+                        "start_x": e.x,
+                        "active": False
                     }
                     return
         if (not self.is_result) and self._in_marker_zone(e.y):
@@ -599,8 +601,15 @@ class WaveformCanvas(tk.Canvas):
     def _on_drag(self, e):
         w = self.winfo_width()
         MIN_PART_SIZE = 256
+        DRAG_THRESHOLD = 10
+        
         if self._drag_part_move is not None:
             data = self._drag_part_move
+            if not data.get("active", False):
+                if abs(e.x - data["start_x"]) < DRAG_THRESHOLD:
+                    return
+                data["active"] = True
+                data["start_sample"] = self.editor._x2s(e.x, w)
             part = data["part"]
             current_sample = max(0, min(self.editor.total_samples - 1, self.editor._x2s(e.x, w)))
             delta = current_sample - data["start_sample"]
@@ -639,6 +648,12 @@ class WaveformCanvas(tk.Canvas):
         
         if self._drag_part_move is not None:
             data = self._drag_part_move
+            if not data.get("active", False):
+                part = data["part"]
+                part.start = data["old_start"]
+                part.end = data["old_end"]
+                self._drag_part_move = None
+                return
             part = data["part"]
             w = self.winfo_width()
             current_sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
@@ -672,6 +687,10 @@ class WaveformCanvas(tk.Canvas):
                 part.start = new_start
                 part.end = new_end
                 ed._finalize_part_move(part, final_delta)
+            else:
+                part.start = data["old_start"]
+                part.end = data["old_end"]
+                ed._redraw()
             
             self._drag_part_move = None
             return
