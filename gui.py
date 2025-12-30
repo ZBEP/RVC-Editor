@@ -302,13 +302,13 @@ class RVCConverterGUI:
         self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
         self.progress_bar.pack(fill=tk.BOTH, expand=True)
         
-        main_frame = ttk.Frame(self.root, padding="5")
+        main_frame = ttk.Frame(self.root, padding="0")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
         self.notebook = ttk.Notebook(main_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
-        editor_frame = ttk.Frame(self.notebook, padding="5")
+        editor_frame = ttk.Frame(self.notebook, padding="0")
         convert_frame = ttk.Frame(self.notebook, padding="5")
         pack_frame = ttk.Frame(self.notebook, padding="5")
         

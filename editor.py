@@ -8,7 +8,7 @@ import json
 
 from lang import tr
 from parts import PartGroup
-from waveform import WaveformCanvas, PART_ROW_HEIGHT, PART_TOP_MARGIN
+from waveform import TimeRulerCanvas, WaveformCanvas, PART_ROW_HEIGHT, PART_TOP_MARGIN
 from history import HistoryManager
 
 SNAP_THRESHOLD_PX = 10
@@ -680,50 +680,52 @@ class EditorTab:
     def _build(self):
         ctrl = ttk.Frame(self.parent)
         ctrl.pack(fill=tk.X, pady=(0, 3))
-        
+
         ttk.Button(ctrl, text="📂", width=3, command=self._load).pack(side=tk.LEFT)
         self.file_lbl = ttk.Label(ctrl, text=tr("(file not selected)"), foreground='gray', width=20)
         self.file_lbl.pack(side=tk.LEFT, padx=5)
-        
+
         ttk.Button(ctrl, text="💾", width=3, command=self._save_result).pack(side=tk.LEFT)
         ttk.Separator(ctrl, orient='vertical').pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        
+
         self.play_btn = ttk.Button(ctrl, text="▶", width=3, command=self._toggle_play)
         self.play_btn.pack(side=tk.LEFT)
-        
-        self.active_lbl = ttk.Label(ctrl, text=f"[{tr('Source')}]", foreground='#5dade2', 
+
+        self.active_lbl = ttk.Label(ctrl, text=f"[{tr('Source')}]", foreground='#5dade2',
                                      font=('Segoe UI', 9, 'bold'))
         self.active_lbl.pack(side=tk.LEFT, padx=5)
         ttk.Separator(ctrl, orient='vertical').pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        
+
         self.preset_lbl = ttk.Label(ctrl, text="", foreground='#888')
         self.preset_lbl.pack(side=tk.LEFT, padx=(0, 10))
-        
+
         ttk.Button(ctrl, text=tr("Run"), command=self._convert).pack(side=tk.RIGHT)
         ttk.Separator(ctrl, orient='vertical').pack(side=tk.RIGHT, fill=tk.Y, padx=6)
-        
+
         self.device_combo = ttk.Combobox(ctrl, state="readonly", width=25)
         self.device_combo.pack(side=tk.RIGHT, padx=2)
         self.device_combo.bind("<<ComboboxSelected>>", self._on_device_change)
         ttk.Button(ctrl, text="🔄", width=2, command=self._rescan_devices).pack(side=tk.RIGHT)
-        
+
+        self.ruler = TimeRulerCanvas(self.parent, self, height=34)
+        self.ruler.pack(fill=tk.X, pady=(0, 0))
+
         tracks = ttk.Frame(self.parent)
-        tracks.pack(fill=tk.BOTH, expand=True)
-        
-        for is_result, lbl, clr in [(True, "R", '#e74c3c'), (False, "S", '#5dade2')]:
+        tracks.pack(fill=tk.BOTH, expand=True, pady=(0, 0))
+
+        for is_result in (True, False):
             row = ttk.Frame(tracks)
             row.pack(fill=tk.BOTH, expand=True)
-            ttk.Label(row, text=lbl, foreground=clr, font=('Consolas', 8), width=2).pack(side=tk.LEFT)
             wf = WaveformCanvas(row, self, is_result=is_result, height=90)
             wf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             setattr(self, 'result_wf' if is_result else 'source_wf', wf)
-        
+
         time_frame = ttk.Frame(self.parent)
         time_frame.pack(fill=tk.X, pady=(2, 0))
-        
+
         self.source_mode_btn = ttk.Button(time_frame, text="F", width=2, command=self._toggle_source_mode)
         self.source_mode_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
+
         self.time_lbl = ttk.Label(time_frame, text="00:00.000 / 00:00.000", font=('Consolas', 9))
         self.time_lbl.pack(side=tk.LEFT)
 
@@ -737,9 +739,9 @@ class EditorTab:
         self.crossfade_btn.pack(side=tk.RIGHT, padx=(10, 2))
         self._update_blend_buttons()
         self._update_crossfade_btn()
-        
+
         self.sel_lbl = ttk.Label(time_frame, text="", foreground='gray', font=('Consolas', 9))
-        self.sel_lbl.pack(side=tk.RIGHT)        
+        self.sel_lbl.pack(side=tk.RIGHT)
         
     def _s2x(self, sample, width):
         if self.total_samples == 0: return 0
@@ -750,22 +752,89 @@ class EditorTab:
         return int(self.offset + x / width * self.total_samples / self.zoom)
     
     def _clamp_offset(self):
-        visible = int(self.total_samples / self.zoom)
-        self.offset = max(0, min(self.total_samples - visible, self.offset))
+        if self.total_samples <= 0:
+            self.offset = 0
+            return
+        visible = int(self.total_samples / max(1e-9, self.zoom))
+        visible = max(1, visible)
+        max_off = max(0, self.total_samples - visible)
+        self.offset = max(0, min(max_off, int(self.offset)))
     
     def _on_zoom(self, e, width):
-        if self.source_audio is None: return
+        if self.source_audio is None:
+            return
         mouse_s = self._x2s(e.x, width)
         self.zoom = max(1.0, min(2000.0, self.zoom * (1.25 if e.delta > 0 else 0.8)))
         self.offset = int(mouse_s - (self.total_samples / self.zoom) * e.x / max(1, width))
         self._clamp_offset()
+        if hasattr(self, "_scroll_anim"):
+            self._scroll_anim = False
+        if hasattr(self, "_scroll_target"):
+            self._scroll_target = self.offset
         self._redraw()
     
-    def _on_scroll(self, e, width):
-        if self.source_audio is None: return
-        self.offset += int(self.total_samples / self.zoom * 0.05) * (-1 if e.delta > 0 else 1)
+    def _start_smooth_scroll(self):
+        if getattr(self, "_scroll_after_id", None):
+            try:
+                self.parent.after_cancel(self._scroll_after_id)
+            except:
+                pass
+            self._scroll_after_id = None
+        self._scroll_after_id = self.parent.after(16, self._smooth_scroll_tick)
+
+    def _smooth_scroll_tick(self):
+        self._scroll_after_id = None
+        if self.source_audio is None or self.total_samples <= 0:
+            self._scroll_anim = False
+            return
+
+        visible = int(self.total_samples / max(1e-9, self.zoom))
+        visible = max(1, visible)
+        max_off = max(0, self.total_samples - visible)
+
+        target = float(getattr(self, "_scroll_target", self.offset))
+        target = max(0.0, min(float(max_off), target))
+        cur = float(self.offset)
+        diff = target - cur
+
+        if abs(diff) <= 0.5:
+            self.offset = int(round(target))
+            self._clamp_offset()
+            self._scroll_anim = False
+            self._redraw()
+            return
+
+        step = diff * 0.35
+        if abs(step) < 1.0:
+            step = 1.0 if diff > 0 else -1.0
+
+        self.offset = int(round(cur + step))
         self._clamp_offset()
         self._redraw()
+
+        if getattr(self, "_scroll_anim", False):
+            self._start_smooth_scroll()
+
+    def _on_scroll(self, e, width):
+        if self.source_audio is None or self.total_samples <= 0:
+            return
+
+        visible = int(self.total_samples / max(1e-9, self.zoom))
+        visible = max(1, visible)
+        max_off = max(0, self.total_samples - visible)
+
+        units = float(e.delta) / 120.0 if getattr(e, "delta", 0) else 0.0
+        if units == 0.0:
+            return
+
+        base = float(getattr(self, "_scroll_target", self.offset)) if getattr(self, "_scroll_anim", False) else float(self.offset)
+        delta = float(visible) * 0.03 * (-units)
+        if abs(delta) < 1.0:
+            delta = -1.0 if units > 0 else 1.0
+
+        self._scroll_target = max(0.0, min(float(max_off), base + delta))
+        self._scroll_anim = True
+        self._start_smooth_scroll()
         
     def _on_click(self, e, width, is_result):
         if self.source_audio is None: return
@@ -1472,6 +1541,8 @@ class EditorTab:
                                foreground='#e74c3c' if is_result else '#5dade2')
             
     def _redraw(self):
+        if hasattr(self, "ruler") and self.ruler:
+            self.ruler.draw()
         self.source_wf.draw()
         self.result_wf.draw()
         if self.play_pos is not None or self.source_wf._last_playhead_x is not None:
@@ -1479,6 +1550,8 @@ class EditorTab:
             self.result_wf.update_playhead()
         
     def _redraw_result(self):
+        if hasattr(self, "ruler") and self.ruler:
+            self.ruler.draw()
         self.result_wf._wf_cache_key = None
         self.result_wf.draw()
         if self.play_pos is not None or self.result_wf._last_playhead_x is not None:

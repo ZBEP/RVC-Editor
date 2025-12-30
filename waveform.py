@@ -1,5 +1,6 @@
 import tkinter as tk
 import numpy as np
+import math
 from PIL import Image, ImageDraw, ImageTk
 
 from lang import tr
@@ -8,6 +9,165 @@ MARKER_HANDLE_HEIGHT = 12
 PART_ROW_HEIGHT = 11
 PART_TOP_MARGIN = 2
 
+class TimeRulerCanvas(tk.Canvas):
+
+    def __init__(self, parent, editor, height=24, **kwargs):
+        super().__init__(
+            parent,
+            height=height,
+            bg='#d9d9d9',
+            highlightthickness=0,
+            bd=0,
+            **kwargs
+        )
+        self.editor = editor
+        self._cache_key = None
+        self.bind('<Configure>', lambda e: self.draw())
+
+    def _nice_step(self, x):
+        if x <= 0:
+            return 1.0
+        p = 10 ** math.floor(math.log10(x))
+        f = x / p
+        if f <= 1:
+            n = 1
+        elif f <= 2:
+            n = 2
+        elif f <= 5:
+            n = 5
+        else:
+            n = 10
+        return n * p
+
+    def _choose_major_step(self, span_sec, width):
+        width = max(1, int(width))
+        span_sec = max(span_sec, 1e-9)
+        approx_ticks = max(2, int(width / 90))
+        raw = span_sec / approx_ticks
+        step = self._nice_step(raw)
+        return max(step, 1.0 / max(1, int(getattr(self.editor, "sr", 44100) or 44100)))
+
+    def _format_time(self, t, step):
+        if step >= 1:
+            total = int(round(t))
+            s = total % 60
+            m_total = total // 60
+            m = m_total % 60
+            h = m_total // 60
+            if h > 0:
+                return f"{h}:{m:02d}:{s:02d}"
+            return f"{m_total}:{s:02d}"
+
+        dec = 1 if step >= 0.1 else (2 if step >= 0.01 else 3)
+        total_ms = int(round(t * 1000))
+        ms = total_ms % 1000
+        sec_total = total_ms // 1000
+        s = sec_total % 60
+        m_total = sec_total // 60
+        frac = f"{ms:03d}"[:dec]
+
+        if m_total > 0:
+            return f"{m_total}:{s:02d}.{frac}"
+        return f"{s}.{frac}"
+
+    def draw(self):
+        w, h = self.winfo_width(), self.winfo_height()
+        if w <= 1 or h <= 1:
+            return
+
+        ed = self.editor
+        sr = getattr(ed, "sr", None)
+        total = int(getattr(ed, "total_samples", 0) or 0)
+        zoom = float(getattr(ed, "zoom", 1.0) or 1.0)
+        offset = int(getattr(ed, "offset", 0) or 0)
+
+        key = (
+            w, h, sr, total,
+            round(zoom, 6), offset,
+            getattr(ed, "sel_start", None), getattr(ed, "sel_end", None),
+            getattr(ed, "cursor_pos", None)
+        )
+        if key == self._cache_key:
+            return
+        self._cache_key = key
+
+        BG = '#d9d9d9'
+        BORDER = '#b0b0b0'
+        MAJOR = '#4f4f4f'
+        MINOR = '#7a7a7a'
+        TEXT = '#111111'
+        SEL = '#b7d5ff'
+        CUR = '#b58900'
+
+        self.delete('all')
+        self.create_rectangle(0, 0, w, h, fill=BG, outline='')
+
+        self.create_line(0, h - 1, w, h - 1, fill=BORDER)
+
+        if not sr or total <= 0:
+            return
+
+        visible = int(total / max(1e-9, zoom))
+        visible = max(1, visible)
+
+        span_sec = visible / sr
+        start_s = offset / sr
+        end_s = (offset + visible) / sr
+
+        if getattr(ed, "sel_start", None) is not None:
+            s1, s2 = sorted([ed.sel_start, ed.sel_end])
+            x1 = max(0, min(w, ed._s2x(s1, w)))
+            x2 = max(0, min(w, ed._s2x(s2, w)))
+            if x2 > x1:
+                self.create_rectangle(x1, 0, x2, h, fill=SEL, outline='')
+
+        major = self._choose_major_step(span_sec, w)
+        div = 5 if major >= 0.5 else 4
+        minor = major / div
+
+        t0 = math.floor(start_s / major) * major
+        t = t0
+        limit = 0
+        while t <= end_s + major + 1e-9 and limit < 20000:
+            limit += 1
+
+            if start_s - 1e-9 <= t <= end_s + 1e-9:
+                x = int(round((t - start_s) / span_sec * w))
+                if 0 <= x <= w:
+                    self.create_line(x, h - 1, x, h - 12, fill=MAJOR)
+
+                    x_txt = x
+                    anchor = 's'
+                    if x < 20:
+                        x_txt = x + 2
+                        anchor = 'sw'
+                    elif x > w - 20:
+                        x_txt = x - 2
+                        anchor = 'se'
+
+                    self.create_text(
+                        x_txt, h - 11,
+                        text=self._format_time(t, major),
+                        fill=TEXT,
+                        font=('Segoe UI', 9, 'bold'),
+                        anchor=anchor
+                    )
+
+            for i in range(1, div):
+                tm = t + minor * i
+                if tm < start_s - 1e-9 or tm > end_s + 1e-9:
+                    continue
+                x = int(round((tm - start_s) / span_sec * w))
+                if 0 <= x <= w:
+                    self.create_line(x, h - 1, x, h - 7, fill=MINOR)
+
+            t += major
+
+        cur = getattr(ed, "cursor_pos", None)
+        if cur is not None and total > 0:
+            cx = ed._s2x(cur, w)
+            if 0 <= cx <= w:
+                self.create_line(cx, 0, cx, h, fill=CUR, width=1)
 
 class WaveformCanvas(tk.Canvas):
 
@@ -263,6 +423,13 @@ class WaveformCanvas(tk.Canvas):
             if 0 <= cx <= w:
                 self.create_line(cx, 0, cx, h, fill='#ffff00', width=1, dash=(3, 3), tags='overlay')
 
+        if self.is_result:
+            self.create_text(w - 6, 2, text="R", fill='#e6e6e6', font=('Consolas', 10, 'bold'),
+                             anchor='ne', tags='overlay')
+        else:
+            self.create_text(w - 6, h - 4, text="S", fill='#e6e6e6', font=('Consolas', 10, 'bold'),
+                             anchor='se', tags='overlay')
+
     def _draw_playhead(self):
         ed = self.editor
         self.delete('playhead')
@@ -409,10 +576,10 @@ class WaveformCanvas(tk.Canvas):
         elif self.is_result and self._in_parts_zone(e.y):
             part = self._find_part_at(e.x, e.y)
             if part:
-                self.editor._switch_version_and_play(part, 1 if e.delta > 0 else -1)
+                self.editor._switch_version_and_play(part, -1 if e.delta > 0 else 1)
         elif self.is_result:
             sample = self.editor._x2s(e.x, self.winfo_width())
-            self.editor._switch_version_at(sample, 1 if e.delta > 0 else -1)
+            self.editor._switch_version_at(sample, -1 if e.delta > 0 else 1)
 
     def _on_double_click(self, e):
         self.editor._on_double_click(e, self.winfo_width(), self.is_result)
