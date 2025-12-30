@@ -659,13 +659,11 @@ class RVCConverterGUI:
         self.log_text.insert(tk.END, f"{message}\n")
         self.log_text.see(tk.END)
         self.log_text.configure(state='disabled')
-        self.root.update_idletasks()
-        
+
     def set_progress(self, value, text=""):
         self.progress_var.set(value)
         if text:
             self.progress_label.config(text=text[:25])
-        self.root.update_idletasks()
         
     def _set_buttons_state(self, state):
         self.convert_btn.config(state=state)
