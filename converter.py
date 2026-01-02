@@ -153,19 +153,8 @@ class VoiceConverter:
             self.log(f"  pitch={pitch}, f0={f0_method}, index_rate={index_rate:.2f}, protect={protect:.2f}")
             
             result = self.vc.vc_single(
-                0,                  # sid
-                input_path,         # input_audio_path
-                pitch,              # f0_up_key
-                None,               # f0_file
-                f0_method,          # f0_method
-                index_path,         # file_index
-                "",                 # file_index2
-                index_rate,         # index_rate
-                filter_radius,      # filter_radius
-                resample_sr,        # resample_sr
-                rms_mix_rate,       # rms_mix_rate
-                protect,            # protect
-                crepe_hop_length    # crepe_hop_length
+                0, input_path, pitch, None, f0_method, index_path, "",
+                index_rate, filter_radius, resample_sr, rms_mix_rate, protect, crepe_hop_length
             )
             
             if result is None:
@@ -214,7 +203,6 @@ class VoiceConverter:
             os.path.join(RVC_ROOT, "runtime", "ffmpeg.exe"),
             "ffmpeg"
         ]
-        
         for p in ffmpeg_paths:
             if p == "ffmpeg":
                 return p
@@ -226,7 +214,6 @@ class VoiceConverter:
         try:
             import subprocess
             ffmpeg_path = self._get_ffmpeg_path()
-                    
             if ffmpeg_path:
                 cmd = [ffmpeg_path, "-y", "-i", wav_path, "-b:a", "320k", mp3_path]
                 subprocess.run(cmd, capture_output=True, check=True)
@@ -235,7 +222,6 @@ class VoiceConverter:
                 new_path = mp3_path.replace(".mp3", ".wav")
                 shutil.copy(wav_path, new_path)
                 self.log(tr("FFmpeg not found, saved as WAV"))
-                
         except Exception as e:
             self.log(f"{tr('MP3 conversion error:')} {e}")
             import shutil
@@ -246,7 +232,6 @@ class VoiceConverter:
         try:
             import subprocess
             ffmpeg_path = self._get_ffmpeg_path()
-                    
             if ffmpeg_path:
                 cmd = [ffmpeg_path, "-y", "-i", wav_path, "-c:a", "aac", "-b:a", "256k", m4a_path]
                 subprocess.run(cmd, capture_output=True, check=True)
@@ -255,7 +240,6 @@ class VoiceConverter:
                 new_path = m4a_path.replace(".m4a", ".wav")
                 shutil.copy(wav_path, new_path)
                 self.log(tr("FFmpeg not found, saved as WAV"))
-                
         except Exception as e:
             self.log(f"{tr('M4A conversion error:')} {e}")
             import shutil
@@ -265,7 +249,6 @@ class VoiceConverter:
     def get_audio_files(self, folder_path):
         if not os.path.exists(folder_path):
             return []
-        
         files = []
         for f in os.listdir(folder_path):
             if f.lower().endswith(AUDIO_EXTENSIONS):
@@ -274,7 +257,6 @@ class VoiceConverter:
             
     def convert_folder(self, input_dir, output_dir, **kwargs):
         files = self.get_audio_files(input_dir)
-        
         if not files:
             self.log(f"{tr('No audio files in folder:')} {input_dir}")
             return []
@@ -286,84 +268,16 @@ class VoiceConverter:
         self.log(f"{tr('Files found:')} {total}")
         
         for i, input_path in enumerate(files):
-            self.set_progress(
-                int(((i + 0.5) / total) * 100),
-                f"{tr('File')} {i+1}/{total}"
-            )
-            
+            self.set_progress(int(((i + 0.5) / total) * 100), f"{tr('File')} {i+1}/{total}")
             filename = os.path.basename(input_path)
             name, _ = os.path.splitext(filename)
             output_path = os.path.join(output_dir, f"{name}_converted.{output_format}")
-            
             success = self.convert(input_path, output_path, **kwargs)
             results.append((input_path, output_path, success))
             
         success_count = sum(1 for _, _, s in results if s)
         self.set_progress(100, f"{tr('Done:')} {success_count}/{total}")
         self.log(f"{tr('Processed:')} {success_count}/{total} {tr('successful')}")
-        
-        return results
-    
-    def convert_pack(self, input_dir, output_dir, presets, **kwargs):
-        files = self.get_audio_files(input_dir)
-        
-        if not files:
-            self.log(f"{tr('No audio files in folder:')} {input_dir}")
-            return []
-        
-        results = []
-        output_format = kwargs.get("output_format", "wav")
-        
-        model_name = ""
-        if self.current_model_name:
-            model_name = os.path.splitext(self.current_model_name)[0]
-        
-        pitch = kwargs.get("pitch", 0)
-        
-        total_operations = len(files) * len(presets)
-        current_op = 0
-        
-        self.log(f"{tr('Files:')} {len(files)}, {tr('presets:')} {len(presets)}, {tr('total operations:')} {total_operations}")
-        
-        for input_path in files:
-            filename = os.path.basename(input_path)
-            name, _ = os.path.splitext(filename)
-            
-            for preset in presets:
-                current_op += 1
-                self.set_progress(
-                    int((current_op / total_operations) * 100),
-                    f"{tr('Operation')} {current_op}/{total_operations}"
-                )
-                
-                f0_method = preset.get("f0_method", kwargs.get("f0_method", "rmvpe"))
-                filter_radius = preset.get("filter_radius", kwargs.get("filter_radius", 3))
-                crepe_hop = preset.get("crepe_hop_length", kwargs.get("crepe_hop_length", 120))
-                
-                f0_short = {"rmvpe": "RM", "mangio-crepe": "MC", "crepe": "CR"}.get(f0_method, f0_method[:2].upper())
-                hop_suffix = f"_H{crepe_hop}" if "crepe" in f0_method else ""
-                
-                output_filename = f"{model_name} {pitch:+d} {f0_short}{hop_suffix} I{preset['index_rate']:.2f} P{preset['protect']:.2f} F{filter_radius} {name}.{output_format}"
-                output_path = os.path.join(output_dir, output_filename)
-                
-                convert_kwargs = {**kwargs}
-                convert_kwargs["index_rate"] = preset["index_rate"]
-                convert_kwargs["protect"] = preset["protect"]
-                convert_kwargs["f0_method"] = f0_method
-                convert_kwargs["filter_radius"] = filter_radius
-                convert_kwargs["crepe_hop_length"] = crepe_hop
-                
-                success = self.convert(input_path, output_path, **convert_kwargs)
-                results.append({
-                    "input": input_path,
-                    "preset": preset,
-                    "output_path": output_path,
-                    "success": success
-                })
-        
-        success_count = sum(1 for r in results if r["success"])
-        self.set_progress(100, f"{tr('Done:')} {success_count}/{total_operations}")
-        self.log(f"{tr('Multi-convert completed:')} {success_count}/{total_operations} {tr('successful')}")
         
         return results
         

@@ -7,7 +7,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 from config_app import (
     APP_DIR, RVC_ROOT, WEIGHTS_DIR, LOGS_DIR, INDEX_ROOT,
     INPUT_DIR, OUTPUT_DIR, DEFAULT_SETTINGS, AUDIO_EXTENSIONS,
-    OUTPUT_FORMATS, F0_METHODS, CREPE_METHODS_WITH_HOP, PACK_PRESETS,
+    OUTPUT_FORMATS, F0_METHODS, CREPE_METHODS_WITH_HOP,
     load_settings, save_settings
 )
 from widgets import ScaleWithEntry, ResettableLabel, ToolTip
@@ -70,7 +70,6 @@ class RVCConverterGUI:
         self.crepe_hop_length = tk.IntVar(value=s.get("crepe_hop_length", 120))
         
         self.log_visible = tk.BooleanVar(value=s.get("log_visible", False))
-        self.pack_presets_vars = []
         
         self.preset_load_model = tk.BooleanVar(value=s.get("preset_load_model", False))
         self.preset_load_pitch = tk.BooleanVar(value=s.get("preset_load_pitch", False))
@@ -169,7 +168,6 @@ class RVCConverterGUI:
             "crepe_hop_length": self.crepe_hop_length.get(),
             "output_format": self.output_format.get(),
             "log_visible": self.log_visible.get(),
-            "pack_presets": [v.get() for v in self.pack_presets_vars],
             "window_geometry": geometry,
             "window_state": state,
             "editor_file": self.saved_settings.get("editor_file", ""),
@@ -318,15 +316,12 @@ class RVCConverterGUI:
         
         editor_frame = ttk.Frame(self.notebook, padding="0")
         convert_frame = ttk.Frame(self.notebook, padding="5")
-        pack_frame = ttk.Frame(self.notebook, padding="5")
         
         self.notebook.add(editor_frame, text=f"✂️ {tr('Editor')}")
         self.notebook.add(convert_frame, text=f"🎤 {tr('Conversion')}")
-        self.notebook.add(pack_frame, text=f"🎭 {tr('Multi-convert')}")
         
         self._create_editor_tab(editor_frame)
         self._create_convert_tab(convert_frame)
-        self._create_pack_tab(pack_frame)
         
         bottom_frame = ttk.Frame(main_frame)
         bottom_frame.pack(fill=tk.X, pady=(5, 0))
@@ -546,43 +541,6 @@ class RVCConverterGUI:
         else:
             self.crepe_frame.pack_forget()
         
-    def _create_pack_tab(self, parent):
-        ttk.Label(parent, text=tr("Convert files from folder with different parameters"), 
-                  font=('TkDefaultFont', 9, 'bold')).pack(anchor="w", pady=(0, 3))
-        ttk.Label(parent, text=tr("Folders, pitch and format from 'Conversion' tab"), 
-                  foreground="gray").pack(anchor="w", pady=(0, 10))
-        
-        presets_frame = ttk.LabelFrame(parent, text=tr("Presets (Index rate / Protect)"), padding="8")
-        presets_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        saved_presets = self.saved_settings.get("pack_presets", [True] * len(PACK_PRESETS))
-        
-        self.pack_presets_vars = []
-        presets_grid = ttk.Frame(presets_frame)
-        presets_grid.pack(fill=tk.X)
-        
-        for i, preset in enumerate(PACK_PRESETS):
-            var = tk.BooleanVar(value=saved_presets[i] if i < len(saved_presets) else True)
-            self.pack_presets_vars.append(var)
-            text = f"{tr(preset['name'])}: I={preset['index_rate']:.2f}, P={preset['protect']:.2f}"
-            cb = ttk.Checkbutton(presets_grid, text=text, variable=var, width=35)
-            cb.grid(row=i % 4, column=i // 4, sticky="w", pady=1, padx=(0, 20))
-        
-        select_frame = ttk.Frame(presets_frame)
-        select_frame.pack(fill=tk.X, pady=(10, 0))
-        ttk.Button(select_frame, text=tr("Select all"), width=12, 
-                   command=lambda: [v.set(True) for v in self.pack_presets_vars]).pack(side=tk.LEFT, padx=2)
-        ttk.Button(select_frame, text=tr("Deselect all"), width=12, 
-                   command=lambda: [v.set(False) for v in self.pack_presets_vars]).pack(side=tk.LEFT, padx=2)
-        
-        info_frame = ttk.LabelFrame(parent, text=tr("Fixed parameters"), padding="8")
-        info_frame.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(info_frame, text="F0: rmvpe  •  Filter: 3  •  RMS: 0.25  •  Resample: off", 
-                  foreground="#555").pack(anchor="w")
-        
-        self.pack_convert_btn = ttk.Button(parent, text=f"🎭 {tr('Run multi-convert')}", command=self._pack_convert)
-        self.pack_convert_btn.pack(pady=10)
-        
     def _create_editor_tab(self, parent):
         from editor import EditorTab
         self.editor = EditorTab(
@@ -673,10 +631,6 @@ class RVCConverterGUI:
         if text:
             self.progress_label.config(text=text[:25])
         
-    def _set_buttons_state(self, state):
-        self.convert_btn.config(state=state)
-        self.pack_convert_btn.config(state=state)
-        
     def _ensure_model_loaded(self):
         model_name = self.model_path.get()
         if not model_name:
@@ -712,21 +666,6 @@ class RVCConverterGUI:
             "output_format": self.output_format.get()
         }
         
-    def _get_pack_params(self):
-        index_path = ""
-        if self.index_path.get() and self.index_path.get() != "(no index)":
-            index_path = os.path.join(RVC_ROOT, self.index_path.get())
-        return {
-            "pitch": self.pitch.get(),
-            "f0_method": "rmvpe",
-            "index_path": index_path,
-            "filter_radius": 3,
-            "resample_sr": 0,
-            "rms_mix_rate": 0.25,
-            "crepe_hop_length": 120,
-            "output_format": self.output_format.get()
-        }
-        
     def _convert(self):
         if not os.path.exists(self._get_input_dir()):
             messagebox.showwarning(tr("Warning"), tr("Input folder does not exist"))
@@ -736,7 +675,7 @@ class RVCConverterGUI:
             
         def thread():
             self.is_converting = True
-            self._set_buttons_state('disabled')
+            self.convert_btn.config(state='disabled')
             try:
                 input_dir = self._get_input_dir()
                 output_dir = self._get_output_dir()
@@ -761,50 +700,7 @@ class RVCConverterGUI:
                 self.progress_label.config(text=f"{tr('Error:')} {str(e)[:30]}", foreground="red")
             finally:
                 self.is_converting = False
-                self._set_buttons_state('normal')
-                self._save_current_settings()
-                
-        threading.Thread(target=thread, daemon=True).start()
-        
-    def _pack_convert(self):
-        if not os.path.exists(self._get_input_dir()):
-            messagebox.showwarning(tr("Warning"), tr("Input folder does not exist"))
-            return
-        if self.is_converting:
-            return
-        presets = [PACK_PRESETS[i] for i, v in enumerate(self.pack_presets_vars) if v.get()]
-        if not presets:
-            messagebox.showwarning(tr("Warning"), tr("Select at least one preset"))
-            return
-            
-        def thread():
-            self.is_converting = True
-            self._set_buttons_state('disabled')
-            try:
-                if not self._ensure_model_loaded():
-                    messagebox.showerror(tr("Error"), tr("Failed to load model"))
-                    return
-                input_dir = self._get_input_dir()
-                output_dir = self._get_output_dir()
-                self.log(f"{tr('Multi-convert')}: {len(presets)} {tr('presets:')}")
-                results = self.converter.convert_pack(
-                    input_dir, output_dir, presets, **self._get_pack_params()
-                )
-                if not results:
-                    self.files_info_label.config(text=tr("No files to convert"), foreground="orange")
-                    return
-                ok = sum(1 for r in results if r["success"])
-                self.log(f"✓ {tr('Done:')} {ok}/{len(results)}")
-                self.progress_label.config(text=f"✓ {tr('Done:')} {ok}/{len(results)}", 
-                                           foreground="green" if ok == len(results) else "orange")
-            except Exception as e:
-                self.log(f"{tr('Error:')} {e}")
-                import traceback
-                self.log(traceback.format_exc())
-                self.progress_label.config(text=f"{tr('Error:')} {str(e)[:30]}", foreground="red")
-            finally:
-                self.is_converting = False
-                self._set_buttons_state('normal')
+                self.convert_btn.config(state='normal')
                 self._save_current_settings()
                 
         threading.Thread(target=thread, daemon=True).start()

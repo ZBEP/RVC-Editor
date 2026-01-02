@@ -38,7 +38,6 @@ DEFAULT_SETTINGS = {
     "crepe_hop_length": 120,
     "output_format": "wav",
     "log_visible": False,
-    "pack_presets": [True, True, True, True, True, True, True],
     "window_geometry": "",
     "window_state": "normal",
     "editor_file": "",
@@ -64,20 +63,6 @@ OUTPUT_FORMATS = ["wav", "flac", "mp3", "m4a"]
 F0_METHODS = ["pm", "harvest", "crepe", "crepe-tiny", "mangio-crepe", "mangio-crepe-tiny", "rmvpe"]
 
 CREPE_METHODS_WITH_HOP = ["mangio-crepe", "mangio-crepe-tiny"]
-
-PACK_PRESETS = [
-    {"name": "Default", "f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.33, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "Minimal Index", "f0_method": "rmvpe", "index_rate": 0.01, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "Low Index, No Protect", "f0_method": "rmvpe", "index_rate": 0.2, "protect": 0.0, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "Low Index, Min Protect", "f0_method": "rmvpe", "index_rate": 0.2, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "Medium", "f0_method": "rmvpe", "index_rate": 0.5, "protect": 0.5, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "High Index, No Protect", "f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.0, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "High Index, Max Protect", "f0_method": "rmvpe", "index_rate": 0.9, "protect": 0.5, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "MC Default H120", "f0_method": "mangio-crepe", "index_rate": 0.9, "protect": 0.33, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "MC Min Index H120", "f0_method": "mangio-crepe", "index_rate": 0.01, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 120},
-    {"name": "MC Default H512", "f0_method": "mangio-crepe", "index_rate": 0.9, "protect": 0.33, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 512},
-    {"name": "MC Min Index H512", "f0_method": "mangio-crepe", "index_rate": 0.01, "protect": 0.01, "filter_radius": 3, "resample_sr": 0, "rms_mix_rate": 0.25, "crepe_hop_length": 512},
-]
 
 
 def load_settings():

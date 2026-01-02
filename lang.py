@@ -6,20 +6,18 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_system_language():
     try:
-        # Windows
         if os.name == 'nt':
             import ctypes
             windll = ctypes.windll.kernel32
             lang_id = windll.GetUserDefaultUILanguage()
             primary = lang_id & 0x3FF
-            if primary == 0x19:  # Russian
+            if primary == 0x19:
                 return 'ru'
-            elif primary == 0x04:  # Chinese
+            elif primary == 0x04:
                 return 'zh'
             else:
                 return 'en'
         else:
-            # Linux/Mac
             lang = locale.getdefaultlocale()[0]
             if lang:
                 lang = lang.lower()[:2]
@@ -52,18 +50,7 @@ TRANSLATIONS = {
     "successful": {"ru": "успешно", "zh": "成功"},
     "Nothing to undo": {"ru": "Нечего отменять", "zh": "没有可撤销的操作"},
     "Nothing to redo": {"ru": "Нечего повторять", "zh": "没有可重做的操作"},
-    "Default": {"ru": "По умолчанию", "zh": "默认"},
-    "Minimal Index": {"ru": "Мин. индекс", "zh": "最小索引"},
-    "Low Index, No Protect": {"ru": "Низкий индекс, без защиты", "zh": "低索引无保护"},
-    "Low Index, Min Protect": {"ru": "Низкий индекс, мин. защита", "zh": "低索引最小保护"},
-    "Medium": {"ru": "Средний", "zh": "中等"},
-    "High Index, No Protect": {"ru": "Высокий индекс, без защиты", "zh": "高索引无保护"},
-    "High Index, Max Protect": {"ru": "Высокий индекс, макс. защита", "zh": "高索引最大保护"},
     "ms": {"ru": " мс", "zh": "毫秒"},
-    "This part contains nested parts.\n\nYes - Replace all (overwrite nested)\nNo - Keep nested parts\nCancel - Cancel operation": {
-        "ru": "Часть содержит вложенные фрагменты.\n\nДа — Заменить всё (затереть вложенные)\nНет — Сохранить вложенные части\nОтмена — Отменить",
-        "zh": "此片段包含嵌套片段。\n\n是 - 替换全部（覆盖嵌套）\n否 - 保留嵌套片段\n取消 - 取消"
-    },
     "Silent": {"ru": "Тишина", "zh": "静音"},
     "Silent part created": {"ru": "Тихая часть создана", "zh": "静音片段已创建"},
     "Volume part:": {"ru": "Часть с громкостью:", "zh": "音量片段:"},
@@ -96,12 +83,6 @@ TRANSLATIONS = {
     "Files found:": {"ru": "Найдено файлов:", "zh": "找到文件:"},
     "File": {"ru": "Файл", "zh": "文件"},
     "Processed:": {"ru": "Обработано:", "zh": "已处理:"},
-    "Files:": {"ru": "файлов:", "zh": "文件:"},
-    "presets:": {"ru": "пресетов:", "zh": "预设:"},
-    "total operations:": {"ru": "всего операций:", "zh": "总操作:"},
-    "Operation": {"ru": "Операция", "zh": "操作"},
-    "Multi-convert completed:": {"ru": "Мульти-конверт завершён:", "zh": "批量转换完成:"},
-    "Crossfade:": {"ru": "Переход:", "zh": "淡入淡出:"},
     "Linear blend": {"ru": "Линейное смешивание", "zh": "线性混合"},
     "Smooth blend": {"ru": "Плавное смешивание", "zh": "平滑混合"},
     "Original": {"ru": "Исходное", "zh": "原始"},
@@ -116,19 +97,13 @@ TRANSLATIONS = {
     "(file not selected)": {"ru": "(файл не выбран)", "zh": "(未选择文件)"},
     "Run": {"ru": "Запуск", "zh": "运行"},
     "Selected:": {"ru": "Выделено:", "zh": "选择:"},
-    "Ctrl+wheel=zoom  Shift+wheel=scroll  wheel(R)=version  I=marker  2xclick=bounds": {
-        "ru": "Ctrl+колесо=зум  Shift+колесо=скролл  колесо(R)=версия  I=маркер  2×клик=границы",
-        "zh": "Ctrl+滚轮=缩放  Shift+滚轮=滚动  滚轮(R)=版本  I=标记  双击=边界"
-    },
     "Delete current version": {"ru": "Удалить текущую версию", "zh": "删除当前版本"},
     "Keep only current": {"ru": "Оставить только текущую", "zh": "仅保留当前"},
     "Delete part (restore)": {"ru": "Удалить часть (восстановить)", "zh": "删除片段（恢复）"},
-    "Delete part files": {"ru": "Удалить файлы части", "zh": "删除片段文件"},
     "Flatten to single file": {"ru": "Свести в общий файл", "zh": "合并为单个文件"},
     "Version deleted": {"ru": "Версия удалена", "zh": "版本已删除"},
     "Other versions deleted": {"ru": "Другие версии удалены", "zh": "其他版本已删除"},
     "Part deleted, data restored": {"ru": "Часть удалена, данные восстановлены", "zh": "片段已删除，数据已恢复"},
-    "Part files deleted": {"ru": "Файлы части удалены", "zh": "片段文件已删除"},
     "Parts flattened": {"ru": "Части сведены в общий файл", "zh": "片段已合并"},
     "Markers:": {"ru": "Маркеры:", "zh": "标记:"},
     "Marker:": {"ru": "Маркер:", "zh": "标记:"},
@@ -156,7 +131,6 @@ TRANSLATIONS = {
     "Log": {"ru": "Лог", "zh": "日志"},
     "Editor": {"ru": "Редактор", "zh": "编辑器"},
     "Conversion": {"ru": "Конвертация", "zh": "转换"},
-    "Multi-convert": {"ru": "Мульти-конверт", "zh": "批量转换"},
     "Model": {"ru": "Модель", "zh": "模型"},
     "Model:": {"ru": "Модель:", "zh": "模型:"},
     "Index:": {"ru": "Индекс:", "zh": "索引:"},
@@ -184,19 +158,6 @@ TRANSLATIONS = {
     "F0 method": {"ru": "F0 метод", "zh": "F0方法"},
     "Format:": {"ru": "Формат:", "zh": "格式:"},
     "Convert": {"ru": "Конвертировать", "zh": "转换"},
-    "Convert files from folder with different parameters": {
-        "ru": "Конвертация файлов из папки с разными параметрами",
-        "zh": "使用不同参数转换文件夹中的文件"
-    },
-    "Folders, pitch and format from 'Conversion' tab": {
-        "ru": "Папки, тон и формат берутся с вкладки «Конвертация»",
-        "zh": '文件夹、音高和格式取自"转换"选项卡'
-    },
-    "Presets (Index rate / Protect)": {"ru": "Пресеты (Влияние индекса / Защита)", "zh": "预设（索引率/保护）"},
-    "Select all": {"ru": "Выбрать все", "zh": "全选"},
-    "Deselect all": {"ru": "Сбросить все", "zh": "取消全选"},
-    "Fixed parameters": {"ru": "Фиксированные параметры", "zh": "固定参数"},
-    "Run multi-convert": {"ru": "Запустить мульти-конверт", "zh": "运行批量转换"},
     "Models:": {"ru": "Моделей:", "zh": "模型:"},
     "indexes:": {"ru": "индексов:", "zh": "索引:"},
     "Parameters reset": {"ru": "Параметры сброшены", "zh": "参数已重置"},
@@ -209,7 +170,6 @@ TRANSLATIONS = {
     "click = overwrite": {"ru": "Клик = перезаписать", "zh": "点击=覆盖"},
     "Protect:": {"ru": "Защита:", "zh": "保护:"},
     "Filter:": {"ru": "Фильтр:", "zh": "过滤:"},
-    "RMS:": {"ru": "RMS:", "zh": "RMS:"},
     "Presets reset to default": {"ru": "Пресеты сброшены на стандартные", "zh": "预设已重置为默认"},
     "reloading model...": {"ru": "перезагрузка модели...", "zh": "重新加载模型..."},
     "Load model:": {"ru": "Загружать модель:", "zh": "加载模型:"},
@@ -218,7 +178,6 @@ TRANSLATIONS = {
     "Input folder does not exist": {"ru": "Входная папка не существует", "zh": "输入文件夹不存在"},
     "Failed to load model": {"ru": "Не удалось загрузить модель", "zh": "无法加载模型"},
     "No files to convert": {"ru": "Нет файлов для конвертации", "zh": "没有要转换的文件"},
-    "Select at least one preset": {"ru": "Выберите хотя бы один пресет", "zh": "请至少选择一个预设"},
     "Error: model not selected": {"ru": "Ошибка: модель не выбрана", "zh": "错误：未选择模型"},
     "(no index)": {"ru": "(no index)", "zh": "(no index)"},
     "(includes hop_length for crepe)": {"ru": "(включает hop_length для crepe)", "zh": "(包含crepe的hop_length)"},
@@ -239,12 +198,10 @@ TRANSLATIONS = {
 def tr(key: str) -> str:
     if CURRENT_LANG == 'en':
         return key
-    
     if key in TRANSLATIONS:
         trans = TRANSLATIONS[key]
         if CURRENT_LANG in trans:
             return trans[CURRENT_LANG]
-    
     return key
 
 
