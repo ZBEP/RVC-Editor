@@ -778,7 +778,9 @@ class EditorTab:
         if self.source_audio is None:
             return
         mouse_s = self._x2s(e.x, width)
-        self.zoom = max(1.0, min(2000.0, self.zoom * (1.25 if e.delta > 0 else 0.8)))
+        min_visible = int(self.sr * 0.07)
+        max_zoom = self.total_samples / max(1, min_visible)
+        self.zoom = max(1.0, min(max_zoom, self.zoom * (1.25 if e.delta > 0 else 0.8)))
         self.offset = int(mouse_s - (self.total_samples / self.zoom) * e.x / max(1, width))
         self._clamp_offset()
         if hasattr(self, "_scroll_anim"):

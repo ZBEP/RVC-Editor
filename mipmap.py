@@ -71,15 +71,21 @@ class AudioMipmap:
             bs *= 2
         
         lvl_min, lvl_max = self.levels[lvl_idx]
+        lvl_len = len(lvl_min)
+        
         res_min = np.zeros(width, dtype=np.float32)
         res_max = np.zeros(width, dtype=np.float32)
         
         for x in range(width):
             ps = offset + x * visible // width
             pe = offset + (x + 1) * visible // width
-            bi = max(0, ps // bs)
-            bj = min(len(lvl_min), (pe + bs - 1) // bs)
-            if bi < bj:
+            bi = ps // bs
+            bj = (pe + bs - 1) // bs
+            
+            bi = max(0, min(bi, lvl_len))
+            bj = max(bi, min(bj, lvl_len))
+            
+            if bj > bi:
                 res_min[x] = np.min(lvl_min[bi:bj])
                 res_max[x] = np.max(lvl_max[bi:bj])
         
@@ -88,28 +94,21 @@ class AudioMipmap:
     def _compute_direct(self, audio, offset, visible, width):
         audio_len = len(audio)
         if audio_len == 0:
-            return None, None
-        
-        s0 = max(0, min(offset, audio_len))
-        s1 = max(s0, min(offset + visible, audio_len))
-        
-        if s1 <= s0:
             return np.zeros(width, dtype=np.float32), np.zeros(width, dtype=np.float32)
         
-        segment = audio[s0:s1]
-        seg_len = len(segment)
+        res_min = np.zeros(width, dtype=np.float32)
+        res_max = np.zeros(width, dtype=np.float32)
         
-        block = max(1, int(np.ceil(seg_len / width)))
-        target_len = block * width
-        
-        if target_len > seg_len:
-            padded = np.zeros(target_len, dtype=np.float32)
-            padded[:seg_len] = segment
-            padded[seg_len:] = segment[-1] if seg_len > 0 else 0
-            segment = padded
-        
-        reshaped = segment[:block * width].reshape(width, block)
-        res_min = np.min(reshaped, axis=1)
-        res_max = np.max(reshaped, axis=1)
+        for x in range(width):
+            ps = offset + x * visible // width
+            pe = offset + (x + 1) * visible // width
+            
+            ps = max(0, min(ps, audio_len))
+            pe = max(ps, min(pe, audio_len))
+            
+            if pe > ps:
+                seg = audio[ps:pe]
+                res_min[x] = seg.min()
+                res_max[x] = seg.max()
         
         return res_min, res_max
