@@ -190,12 +190,22 @@ class PartGroup:
         params = self.get_params(idx)
         if not params:
             return ""
+        
+        parts = []
+        
+        model = params.get("model", "")
+        if model:
+            model_short = os.path.splitext(model)[0]
+            if len(model_short) > 12:
+                model_short = model_short[:10] + ".."
+            parts.append(model_short)
+        
         F0_SHORT = {"rmvpe": "RM", "mangio-crepe": "MC", "mangio-crepe-tiny": "MCt",
                     "crepe": "CR", "crepe-tiny": "CRt", "harvest": "HV", "pm": "PM"}
         def fmt(v): return f"{v:.2f}".lstrip('0') or '0'
         f0 = F0_SHORT.get(params.get("f0_method", ""), "?")
-        parts = [f0, f"I{fmt(params.get('index_rate', .9))}",
-                 f"P{fmt(params.get('protect', .33))}", f"F{params.get('filter_radius', 3)}"]
+        parts.extend([f0, f"I{fmt(params.get('index_rate', .9))}",
+                     f"P{fmt(params.get('protect', .33))}", f"F{params.get('filter_radius', 3)}"])
         if "crepe" in params.get("f0_method", ""):
             parts.append(f"H{params.get('crepe_hop_length', 120)}")
         source_mode = params.get("source_mode", "")

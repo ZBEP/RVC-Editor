@@ -654,6 +654,7 @@ class RVCConverterGUI:
         if self.index_path.get() and self.index_path.get() != "(no index)":
             index_path = os.path.join(RVC_ROOT, self.index_path.get())
         return {
+            "model": self.model_path.get(),
             "pitch": self.pitch.get(),
             "f0_method": self.f0_method.get(),
             "index_path": index_path,

@@ -383,28 +383,32 @@ class WaveformCanvas(tk.Canvas):
                         if ox2 > ox1:
                             self.create_rectangle(ox1, y1, ox2, y2, fill='#303030', outline='', tags='overlay')
 
-                if (x2_c - x1_c) > 60:
+                if (x2_c - x1_c) > 10:
                     cx = (x1_c + x2_c) // 2
-                    if g.has_base:
-                        txt = tr("base") if g.active_idx == 0 else f"{g.active_idx}/{len(g.versions) - 1}"
+                    wide = (x2_c - x1_c) > 420
+                    medium = (x2_c - x1_c) > 60
+                    
+                    if medium:
+                        if g.has_base:
+                            txt = tr("base") if g.active_idx == 0 else f"{g.active_idx}/{len(g.versions) - 1}"
+                        else:
+                            txt = f"{g.active_idx + 1}/{len(g.versions)}" if len(g.versions) > 1 else ""
+                        
+                        if wide:
+                            params_str = g.format_params(g.active_idx)
+                            if params_str:
+                                txt = (txt + " " if txt else "") + "  " + params_str + "  "
+                        
+                        if g.volume_db != 0:
+                            skip_vol = g.has_base and g.active_idx == 0 and len(g.versions) > 1
+                            vol_str = f"({g.volume_db:+d} dB)" if skip_vol else f"{g.volume_db:+d} dB"
+                            txt = (txt + " " if txt else "") + vol_str
                     else:
-                        txt = f"{g.active_idx + 1}/{len(g.versions)}" if len(g.versions) > 1 else ""
-
-                    if g.volume_db != 0:
-                        skip_vol = g.has_base and g.active_idx == 0 and len(g.versions) > 1
-                        vol_str = f"({g.volume_db:+d} dB)" if skip_vol else f"{g.volume_db:+d} dB"
-                        txt = (txt + " " if txt else "") + vol_str
-
-                    if txt:
-                        self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff',
-                                         font=('Consolas', 7), tags='overlay')
-
-                elif (x2_c - x1_c) > 10:
-                    cx = (x1_c + x2_c) // 2
-                    if g.has_base:
-                        txt = "" if g.active_idx == 0 else str(g.active_idx)
-                    else:
-                        txt = str(g.active_idx + 1) if len(g.versions) > 1 else ""
+                        if g.has_base:
+                            txt = "" if g.active_idx == 0 else str(g.active_idx)
+                        else:
+                            txt = str(g.active_idx + 1) if len(g.versions) > 1 else ""
+                    
                     if txt:
                         self.create_text(cx, (y1 + y2) // 2, text=txt, fill='#fff',
                                          font=('Consolas', 7), tags='overlay')

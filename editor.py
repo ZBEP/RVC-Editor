@@ -1644,6 +1644,7 @@ class EditorTab:
         preset = self.get_preset_info()
         model_name = os.path.splitext(preset["model"])[0] if preset.get("model") else ""
         source_name = os.path.splitext(os.path.basename(self.source_path))[0] if self.source_path else ""
+        source_name = source_name.replace("_(Vocals)_(No Reverb)", "")
         
         if model_name and source_name:
             default_name = f"{model_name} {source_name}.wav"
@@ -2037,6 +2038,7 @@ class EditorTab:
                         group = existing_group
                     
                     version_params = {
+                        "model": params.get("model", ""),
                         "pitch": params.get("pitch", 0),
                         "f0_method": params.get("f0_method", "rmvpe"),
                         "index_rate": params.get("index_rate", 0.9),
