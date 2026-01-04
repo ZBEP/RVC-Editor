@@ -10,6 +10,7 @@ from lang import tr
 from parts import PartGroup
 from waveform import TimeRulerCanvas, WaveformCanvas, PART_ROW_HEIGHT, PART_TOP_MARGIN
 from history import HistoryManager
+from mipmap import AudioMipmap
 
 SNAP_THRESHOLD_PX = 10
 BLEND_VALUES = [0, 15, 30, 60, 120]
@@ -35,6 +36,8 @@ class EditorTab:
         self.result_audio = None
         self.source_audio_display = None # Используется только для отрисовки - source_audio_display
         self.result_audio_display = None
+        self.source_mipmap = AudioMipmap()
+        self.result_mipmap = AudioMipmap()
         
         self.sr = None
         self.total_samples = 0
@@ -94,6 +97,7 @@ class EditorTab:
         
         self.result_audio = np.zeros(self.total_samples, dtype=np.float32)
         self.result_audio_display = np.zeros(self.total_samples, dtype=np.float32)
+        self.result_mipmap.invalidate()
         
         self._assign_levels()
         sorted_parts = sorted(self.part_groups, key=lambda p: p.apply_order)
@@ -377,6 +381,7 @@ class EditorTab:
         if fade_ms == 0 or write_len < 200 or self.result_audio is None:
             self.result_audio[start:end] = data
             self.result_audio_display[start:end] = data
+            self.result_mipmap.invalidate()
             return
         
         fade_samples = min(int(self.sr * fade_ms / 1000), write_len // 4)
@@ -403,6 +408,7 @@ class EditorTab:
         
         self.result_audio[start:end] = result
         self.result_audio_display[start:end] = result
+        self.result_mipmap.invalidate()
     
     def _toggle_source_mode(self):
         if not self.is_stereo:
@@ -480,6 +486,7 @@ class EditorTab:
                 result, _ = sf.read(result_path)
                 self.result_audio = result.astype(np.float32)
                 self.result_audio_display = self._to_mono(result)
+                self.result_mipmap.build(self.result_audio_display)
             
             self.markers = data.get("markers", [])
             self.sel_start = data.get("sel_start")
@@ -1043,6 +1050,7 @@ class EditorTab:
                     base_data = tmp
                 self.result_audio[part.start:part.end] = base_data
                 self.result_audio_display[part.start:part.end] = base_data
+                self.result_mipmap.invalidate()
             self.part_groups.remove(part)
             self._push_snapshot()
             self._save_project()
@@ -1238,6 +1246,8 @@ class EditorTab:
                     abs_start = group.start + tail_start
                     self.result_audio[abs_start:abs_start + len(tail_data)] = tail_data
                     self.result_audio_display[abs_start:abs_start + len(tail_data)] = tail_data
+        
+        self.result_mipmap.invalidate()
                     
     def _apply_version(self, group, preserve_nested=False, blend_override=None, update_state=True):
         blend = blend_override if blend_override is not None else self.blend_mode
@@ -1277,6 +1287,7 @@ class EditorTab:
         if write_len < 100 or self.result_audio is None or fade_ms == 0:
             self.result_audio[start:end] = data
             self.result_audio_display[start:end] = data
+            self.result_mipmap.invalidate()
             return
         
         fade_samples = min(int(self.sr * fade_ms / 1000), write_len // 4)
@@ -1304,6 +1315,7 @@ class EditorTab:
         
         self.result_audio[start:end] = result
         self.result_audio_display[start:end] = result
+        self.result_mipmap.invalidate()
 
     def _get_nested_parts(self, part):
         return [g for g in self.part_groups 
@@ -1430,6 +1442,7 @@ class EditorTab:
                     base_data = tmp
                 self.result_audio[part.start:part.end] = base_data
                 self.result_audio_display[part.start:part.end] = base_data
+                self.result_mipmap.invalidate()
         
         if part in self.part_groups:
             self.part_groups.remove(part)
@@ -1604,6 +1617,8 @@ class EditorTab:
             self.source_audio = data.astype(np.float32)
             self.is_stereo = len(data.shape) > 1
             self.source_audio_display = self._to_mono(data)
+            self.source_mipmap.build(self.source_audio_display)
+            self.result_mipmap = AudioMipmap()
             
             self.source_mode = "M" if not self.is_stereo else "F"
             self.source_mode_btn.config(text=self.source_mode)

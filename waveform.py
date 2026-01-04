@@ -232,90 +232,59 @@ class WaveformCanvas(tk.Canvas):
         self.delete('overlay')
         self._draw_overlay(w, h)
 
-    def _compute_envelope_minmax(self, audio: np.ndarray, offset: int, visible: int, width: int):
-        if audio is None or width <= 0:
-            return None, None
-
-        audio_len = int(len(audio))
-        if audio_len <= 0:
-            return None, None
-
-        s0 = int(max(0, min(offset, audio_len)))
-        s1 = int(max(s0, min(offset + visible, audio_len)))
-        segment = audio[s0:s1]
-
-        seg_len = int(len(segment))
-        if seg_len <= 0:
-            return None, None
-
-        segment = np.asarray(segment, dtype=np.float32)
-        block = int(np.ceil(seg_len / max(1, width)))
-        block = max(1, block)
-
-        target_len = block * width
-        if target_len != seg_len:
-            pad = target_len - seg_len
-            segment = np.pad(segment, (0, pad), mode='constant', constant_values=np.nan)
-
-        seg2 = segment.reshape(width, block)
-        mn = np.nanmin(seg2, axis=1)
-        mx = np.nanmax(seg2, axis=1)
-        mn = np.nan_to_num(mn, nan=0.0)
-        mx = np.nan_to_num(mx, nan=0.0)
-
-        return mn, mx
-
     def _update_waveform_image(self, w, h):
         ed = self.editor
         audio = self.get_audio()
 
-        if audio is None:
-            cache_key = (w, h, None, None, None, 0)
-        else:
-            cache_key = (w, h, ed.zoom, ed.offset, id(audio), int(len(audio)))
-
+        audio_id = id(audio) if audio is not None else None
+        audio_len = len(audio) if audio is not None else 0
+        cache_key = (w, h, round(ed.zoom, 6), ed.offset, audio_id, audio_len)
+        
         if cache_key == self._wf_cache_key and self._wf_image_id:
             return
 
         self._wf_cache_key = cache_key
-        img = Image.new('RGB', (w, h), (30, 30, 30))
-        draw = ImageDraw.Draw(img)
+        
+        pixels = np.zeros((h, w, 3), dtype=np.uint8)
+        pixels[:] = (30, 30, 30)
+        
         mid = h // 2
-        draw.line([(0, mid), (w, mid)], fill=(68, 68, 68))
+        pixels[mid, :] = (68, 68, 68)
+        
         if audio is not None and ed.total_samples > 0:
             visible = int(ed.total_samples / max(1e-9, ed.zoom))
             visible = max(1, visible)
-            mn, mx = self._compute_envelope_minmax(
-                audio=audio,
-                offset=int(ed.offset),
-                visible=visible,
-                width=w
-            )
-
+            
+            mipmap = ed.result_mipmap if self.is_result else ed.source_mipmap
+            mn, mx = mipmap.get_envelope(audio, int(ed.offset), visible, w)
+            
             if mn is not None and mx is not None:
-                color_rgb = (231, 76, 60) if self.is_result else (93, 173, 226)
+                color = (231, 76, 60) if self.is_result else (93, 173, 226)
                 scale = mid * 0.9
                 if scale < 1:
                     scale = 1
+                
+                y_top = (mid - mx * scale).astype(int)
+                y_bot = (mid - mn * scale).astype(int)
+                swap = y_top > y_bot
+                y_top[swap], y_bot[swap] = y_bot[swap], y_top[swap]
+                
+                for x in range(1, w):
+                    if y_top[x] > y_bot[x-1] + 1:
+                        y_top[x] = y_bot[x-1]
+                    if y_bot[x] < y_top[x-1] - 1:
+                        y_bot[x] = y_top[x-1]
+                
+                y_top = np.clip(y_top, 0, h - 1)
+                y_bot = np.clip(y_bot, 0, h - 1)
+                
                 for x in range(w):
-                    y_top = int(mid - (mx[x] * scale))
-                    y_bot = int(mid - (mn[x] * scale))
+                    if y_bot[x] >= y_top[x]:
+                        pixels[y_top[x]:y_bot[x] + 1, x] = color
 
-                    if y_top > y_bot:
-                        y_top, y_bot = y_bot, y_top
-
-                    if y_bot < 0 or y_top >= h:
-                        continue
-                    y_top = max(0, min(h - 1, y_top))
-                    y_bot = max(0, min(h - 1, y_bot))
-
-                    if y_bot == y_top:
-                        draw.point((x, y_top), fill=color_rgb)
-                    else:
-                        draw.line([(x, y_top), (x, y_bot)], fill=color_rgb)
-
+        img = Image.fromarray(pixels, 'RGB')
         self._wf_photo = ImageTk.PhotoImage(img)
-
+        
         if self._wf_image_id:
             self.itemconfig(self._wf_image_id, image=self._wf_photo)
         else:
