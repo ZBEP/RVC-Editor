@@ -366,7 +366,7 @@ class WaveformCanvas(tk.Canvas):
                         if wide:
                             params_str = g.format_params(g.active_idx)
                             if params_str:
-                                txt = (txt + " " if txt else "") + "  " + params_str + "  "
+                                txt = (txt + ":  " if txt else "") + params_str + "  "
                         
                         if g.volume_db != 0:
                             skip_vol = g.has_base and g.active_idx == 0 and len(g.versions) > 1

@@ -223,6 +223,15 @@ class EditorTab:
         if kc == 86 and ctrl:
             self._paste_at_cursor()
             return "break"
+        if kc == 83 and ctrl:
+            self._save_result()
+            return "break"
+        if kc == 36 and not ctrl:
+            self._jump_to_boundary(True)
+            return "break"
+        if kc == 35 and not ctrl:
+            self._jump_to_boundary(False)
+            return "break"
         if kc == 73 and not ctrl:
             self._hotkey_marker()
             return "break"
@@ -1073,7 +1082,32 @@ class EditorTab:
         self._play_after_action(pos, end)
         
         return "break"
-    
+
+    def _jump_to_boundary(self, to_start):
+        if self.source_audio is None:
+            return
+        
+        pos = self.cursor_pos or 0
+        
+        boundary = None
+        if self.sel_start is not None:
+            boundary = min(self.sel_start, self.sel_end) if to_start else max(self.sel_start, self.sel_end)
+        elif self.part_groups:
+            matching = [g for g in self.part_groups if g.start <= pos < g.end]
+            if matching:
+                part = min(matching, key=lambda g: g.size())
+                boundary = part.start if to_start else part.end
+        
+        fallback = 0 if to_start else self.total_samples
+        target = fallback if boundary is None or pos == boundary else boundary
+        self.cursor_pos = target
+        
+        if self._is_playing and target < self.total_samples:
+            self._play_pos = self._play_start = self.play_pos = target
+        
+        self._redraw()
+        self._update_time()
+
     def _play_after_action(self, pos, end):
         self._active_track = 'result'
         self._update_active_label()
@@ -1677,7 +1711,8 @@ class EditorTab:
         if path:
             try:
                 import soundfile as sf
-                sf.write(path, self.result_audio, self.sr)
+                stereo = np.column_stack((self.result_audio, self.result_audio))
+                sf.write(path, stereo, self.sr, subtype='PCM_24')
                 self.log(f"{tr('Saved:')} {os.path.basename(path)}")
             except Exception as e:
                 self.log(f"{tr('Error:')} {e}")
