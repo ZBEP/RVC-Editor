@@ -382,9 +382,11 @@ class RVCConverterGUI:
         f0_row = ttk.Frame(params_frame)
         f0_row.pack(fill=tk.X, pady=(0, 5))
         
-        ResettableLabel(f0_row, text=tr("F0 Method:"), variable=self.f0_method, 
+        f0_lbl = ResettableLabel(f0_row, text=tr("F0 Method:"), variable=self.f0_method, 
                         default_value=DEFAULT_SETTINGS["f0_method"],
-                        on_reset=self._on_f0_reset).pack(side=tk.LEFT)
+                        on_reset=self._on_f0_reset)
+        f0_lbl.pack(side=tk.LEFT)
+        ToolTip(f0_lbl, tr("hint_f0_method"))
         ttk.Frame(f0_row, width=20).pack(side=tk.LEFT)
         
         self.f0_btns = {}
@@ -404,8 +406,10 @@ class RVCConverterGUI:
         self.f0_method.trace_add("write", lambda *args: self._update_crepe_visibility())
         
         self.crepe_frame = ttk.Frame(params_frame)
-        ResettableLabel(self.crepe_frame, text=tr("Analysis step:"), variable=self.crepe_hop_length,
-                        default_value=DEFAULT_SETTINGS["crepe_hop_length"]).pack(side=tk.LEFT)
+        hop_lbl = ResettableLabel(self.crepe_frame, text=tr("Analysis step:"), variable=self.crepe_hop_length,
+                        default_value=DEFAULT_SETTINGS["crepe_hop_length"])
+        hop_lbl.pack(side=tk.LEFT)
+        ToolTip(hop_lbl, tr("hint_hop_length"))
         ttk.Frame(self.crepe_frame, width=20).pack(side=tk.LEFT)
         ScaleWithEntry(self.crepe_frame, self.crepe_hop_length, 16, 512, step=1, 
                        entry_width=5, scale_length=150).pack(side=tk.LEFT)
@@ -423,34 +427,46 @@ class RVCConverterGUI:
         params_container.pack_propagate(False)
         
         y = TOP_MARGIN
-        ResettableLabel(params_container, text=tr("Pitch:"), variable=self.pitch,
-                        default_value=DEFAULT_SETTINGS["pitch"]).place(x=L1_LABEL, y=y+3)
+        pitch_lbl = ResettableLabel(params_container, text=tr("Pitch:"), variable=self.pitch,
+                        default_value=DEFAULT_SETTINGS["pitch"])
+        pitch_lbl.place(x=L1_LABEL, y=y+3)
+        ToolTip(pitch_lbl, tr("hint_pitch"))
         pitch_btns = ttk.Frame(params_container)
         pitch_btns.place(x=L1_BTNS, y=y)
         for val, txt in [(-12, "-12"), (0, "0"), (12, "+12")]:
             ttk.Button(pitch_btns, text=txt, width=4, command=lambda v=val: self.pitch.set(v)).pack(side=tk.LEFT, padx=1)
         ScaleWithEntry(params_container, self.pitch, -24, 24, step=1, entry_width=ENTRY_W, scale_length=SCALE_LEN).place(x=L1_SCALE, y=y)
         
-        ResettableLabel(params_container, text=tr("Pitch filter:"), variable=self.filter_radius,
-                        default_value=DEFAULT_SETTINGS["filter_radius"]).place(x=L2_LABEL, y=y+3)
+        filter_lbl = ResettableLabel(params_container, text=tr("Pitch filter:"), variable=self.filter_radius,
+                        default_value=DEFAULT_SETTINGS["filter_radius"])
+        filter_lbl.place(x=L2_LABEL, y=y+3)
+        ToolTip(filter_lbl, tr("hint_filter_radius"))
         ScaleWithEntry(params_container, self.filter_radius, 0, 7, step=1, entry_width=ENTRY_W, scale_length=SCALE_LEN).place(x=L2_SCALE, y=y)
         
         y = TOP_MARGIN + ROW_HEIGHT
-        ResettableLabel(params_container, text=tr("Index influence:"), variable=self.index_rate,
-                        default_value=DEFAULT_SETTINGS["index_rate"]).place(x=L1_LABEL, y=y+3)
+        index_lbl = ResettableLabel(params_container, text=tr("Index influence:"), variable=self.index_rate,
+                        default_value=DEFAULT_SETTINGS["index_rate"])
+        index_lbl.place(x=L1_LABEL, y=y+3)
+        ToolTip(index_lbl, tr("hint_index_rate"))
         ScaleWithEntry(params_container, self.index_rate, 0, 1, step=0.01, entry_width=ENTRY_W, scale_length=SCALE_LEN).place(x=L1_SCALE, y=y)
         
-        ResettableLabel(params_container, text=tr("Volume mix:"), variable=self.rms_mix_rate,
-                        default_value=DEFAULT_SETTINGS["rms_mix_rate"]).place(x=L2_LABEL, y=y+3)
+        rms_lbl = ResettableLabel(params_container, text=tr("Volume mix:"), variable=self.rms_mix_rate,
+                        default_value=DEFAULT_SETTINGS["rms_mix_rate"])
+        rms_lbl.place(x=L2_LABEL, y=y+3)
+        ToolTip(rms_lbl, tr("hint_rms_mix_rate"))
         ScaleWithEntry(params_container, self.rms_mix_rate, 0, 1, step=0.01, entry_width=ENTRY_W, scale_length=SCALE_LEN).place(x=L2_SCALE, y=y)
         
         y = TOP_MARGIN + ROW_HEIGHT * 2
-        ResettableLabel(params_container, text=tr("Consonant protection:"), variable=self.protect,
-                        default_value=DEFAULT_SETTINGS["protect"]).place(x=L1_LABEL, y=y+3)
+        protect_lbl = ResettableLabel(params_container, text=tr("Consonant protection:"), variable=self.protect,
+                        default_value=DEFAULT_SETTINGS["protect"])
+        protect_lbl.place(x=L1_LABEL, y=y+3)
+        ToolTip(protect_lbl, tr("hint_protect"))
         ScaleWithEntry(params_container, self.protect, 0, 0.5, step=0.01, entry_width=ENTRY_W, scale_length=SCALE_LEN).place(x=L1_SCALE, y=y)
         
-        ResettableLabel(params_container, text=tr("Resample:"), variable=self.resample_sr,
-                        default_value=DEFAULT_SETTINGS["resample_sr"]).place(x=L2_LABEL, y=y+3)
+        resample_lbl = ResettableLabel(params_container, text=tr("Resample:"), variable=self.resample_sr,
+                        default_value=DEFAULT_SETTINGS["resample_sr"])
+        resample_lbl.place(x=L2_LABEL, y=y+3)
+        ToolTip(resample_lbl, tr("hint_resample_sr"))
         resample_frame = ttk.Frame(params_container)
         resample_frame.place(x=L2_SCALE, y=y)
         ttk.Combobox(resample_frame, textvariable=self.resample_sr, 

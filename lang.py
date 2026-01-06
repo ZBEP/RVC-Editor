@@ -182,7 +182,7 @@ TRANSLATIONS = {
     "(no index)": {"ru": "(no index)", "zh": "(no index)"},
     "(includes hop_length for crepe)": {"ru": "(включает hop_length для crepe)", "zh": "(包含crepe的hop_length)"},
     "toggle": {"ru": "переключить", "zh": "切换"},
-    "if model empty - unchanged": {"ru": "если модель пустая — не меняется", "zh": "如果模型为空则不变"},
+    "if model empty - unchanged": {"ru": "если модель пустая - не меняется", "zh": "如果模型为空则不变"},
     "Load pitch:": {"ru": "Загружать тон:", "zh": "加载音高:"},
     "Load F0 method:": {"ru": "Загружать F0 метод:", "zh": "加载F0方法:"},
     "Part moved:": {"ru": "Часть перемещена:", "zh": "片段已移动:"},
@@ -192,16 +192,56 @@ TRANSLATIONS = {
     "Starting...": {"ru": "Запуск...", "zh": "启动中..."},
     "mangio-crepe folder not found:": {"ru": "Папка mangio-crepe не найдена:", "zh": "未找到mangio-crepe文件夹:"},
     "mangio-crepe files updated:": {"ru": "Обновлены файлы mangio-crepe:", "zh": "mangio-crepe文件已更新:"},
+    "hint_f0_method": {
+        "ru": "Алгоритм извлечения основного тона (F0):\n\n• rmvpe - лучший баланс качества и скорости, рекомендуется\n• mangio-crepe - высокая точность, медленнее, есть настройка шага\n• crepe - точный, но медленный\n• harvest - хорош для низких голосов\n• pm - быстрый, но менее точный",
+        "zh": "基频(F0)提取算法:\n\n• rmvpe - 质量和速度的最佳平衡，推荐使用\n• mangio-crepe - 高精度，较慢，可调步长\n• crepe - 精确但慢\n• harvest - 适合低音\n• pm - 快但不太精确",
+        "en": "Pitch extraction algorithm (F0):\n\n• rmvpe - best balance of quality and speed, recommended\n• mangio-crepe - high accuracy, slower, adjustable step\n• crepe - accurate but slow\n• harvest - good for low voices\n• pm - fast but less accurate"
+    },
+    "hint_hop_length": {
+        "ru": "Шаг анализа для crepe методов.\n\nМеньшее значение = более точное определение тона,\nно медленнее обработка.\n\n• 64-128 - высокая точность (медленно)\n• 128-256 - баланс (рекомендуется)\n• 256-512 - быстрая обработка",
+        "zh": "crepe方法的分析步长。\n\n值越小 = 音高检测越精确，\n但处理越慢。\n\n• 64-128 - 高精度（慢）\n• 128-256 - 平衡（推荐）\n• 256-512 - 快速处理",
+        "en": "Analysis step for crepe methods.\n\nLower value = more accurate pitch detection,\nbut slower processing.\n\n• 64-128 - high accuracy (slow)\n• 128-256 - balanced (recommended)\n• 256-512 - fast processing"
+    },
+    "hint_pitch": {
+        "ru": "Сдвиг тона в полутонах.\n\n• +12 - мужской исходник → женская модель\n• -12 - женский исходник → мужская модель",
+        "zh": "以半音为单位的音高偏移。\n\n• +12 - 男声原始 → 女声模型\n• -12 - 女声原始 → 男声模型",
+        "en": "Pitch shift in semitones.\n\n• +12 - male source → female model\n• -12 - female source → male model"
+    },
+    "hint_filter_radius": {
+        "ru": "Медианная фильтрация кривой тона.\nСглаживает резкие скачки высоты тона.\n\n• 0 - без фильтрации\n• 3 - умеренное сглаживание (рекомендуется)\n• 7 - сильное сглаживание\n\nБольшие значения могут сгладить вибрато.",
+        "zh": "音高曲线的中值滤波。\n平滑音高的突然跳变。\n\n• 0 - 无滤波\n• 3 - 适度平滑（推荐）\n• 7 - 强平滑\n\n较大值可能会平滑掉颤音。",
+        "en": "Median filtering of pitch curve.\nSmooths sudden pitch jumps.\n\n• 0 - no filtering\n• 3 - moderate smoothing (recommended)\n• 7 - strong smoothing\n\nHigher values may smooth out vibrato."
+    },
+    "hint_index_rate": {
+        "ru": "Влияние индекса голоса на тембр.\n\n• 0.0 - индекс не используется\n• 0.5 - умеренное влияние\n• 0.9-1.0 - максимальное сходство с моделью\n\nВысокие значения лучше передают тембр,\nно могут добавить артефакты.",
+        "zh": "语音索引对音色的影响。\n\n• 0.0 - 不使用索引\n• 0.5 - 适度影响\n• 0.9-1.0 - 与模型最大相似度\n\n高值更好地传达音色，\n但可能产生伪影。",
+        "en": "Voice index influence on timbre.\n\n• 0.0 - index not used\n• 0.5 - moderate influence\n• 0.9-1.0 - maximum similarity to model\n\nHigher values better convey timbre,\nbut may add artifacts."
+    },
+    "hint_rms_mix_rate": {
+        "ru": "Микширование громкости исходника и результата.\n\n• 0.0 - громкость полностью от модели\n• 0.25 - небольшой вклад исходника (рекомендуется)\n• 1.0 - громкость полностью от исходника\n\nПомогает сохранить динамику оригинала.",
+        "zh": "原始和结果音量的混合。\n\n• 0.0 - 完全来自模型的音量\n• 0.25 - 原始略有贡献（推荐）\n• 1.0 - 完全来自原始的音量\n\n有助于保持原始的动态。",
+        "en": "Volume mixing of source and result.\n\n• 0.0 - volume entirely from model\n• 0.25 - slight source contribution (recommended)\n• 1.0 - volume entirely from source\n\nHelps preserve original dynamics."
+    },
+    "hint_protect": {
+        "ru": "Защита согласных звуков от искажений.\n\n• 0.0 - без защиты (максимальное преобразование)\n• 0.33 - умеренная защита (рекомендуется)\n• 0.5 - сильная защита\n\nВысокие значения сохраняют чёткость согласных,\nно голос может быть менее похож на модель.",
+        "zh": "保护辅音免受失真。\n\n• 0.0 - 无保护（最大转换）\n• 0.33 - 适度保护（推荐）\n• 0.5 - 强保护\n\n高值保持辅音清晰，\n但声音可能不太像模型。",
+        "en": "Consonant protection from distortion.\n\n• 0.0 - no protection (maximum conversion)\n• 0.33 - moderate protection (recommended)\n• 0.5 - strong protection\n\nHigher values preserve consonant clarity,\nbut voice may be less similar to model."
+    },
+    "hint_resample_sr": {
+        "ru": "Частота дискретизации выходного аудио.\n\n• 0 - без изменения (рекомендуется)\n• 44100 - стандартное CD качество\n• 48000 - стандарт для видео\n\nИспользуйте, если нужен конкретный формат.",
+        "zh": "输出音频的采样率。\n\n• 0 - 不改变（推荐）\n• 44100 - 标准CD质量\n• 48000 - 视频标准\n\n如果需要特定格式则使用。",
+        "en": "Output audio sample rate.\n\n• 0 - no change (recommended)\n• 44100 - standard CD quality\n• 48000 - video standard\n\nUse if specific format is needed."
+    },
 }
 
 
 def tr(key: str) -> str:
-    if CURRENT_LANG == 'en':
-        return key
     if key in TRANSLATIONS:
         trans = TRANSLATIONS[key]
         if CURRENT_LANG in trans:
             return trans[CURRENT_LANG]
+        if 'en' in trans:
+            return trans['en']
     return key
 
 
