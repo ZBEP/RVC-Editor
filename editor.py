@@ -1514,6 +1514,17 @@ class EditorTab:
         if self.source_audio is None:
             return "break"
         
+        if self._active_track == 'result' and self.sel_start is not None:
+            s1, s2 = sorted([self.sel_start, self.sel_end])
+            if s2 - s1 > 100:
+                containing = [g for g in self.part_groups if g.start < s1 and g.end > s2]
+                if containing:
+                    part = min(containing, key=lambda g: g.size())
+                    is_base = part.has_base and part.active_idx == 0
+                    if not is_base:
+                        self._duplicate_part_to_selection(part, s1, s2)
+                        return "break"
+        
         if self.sel_start is not None and abs(self.sel_end - self.sel_start) > 100:
             s1, s2 = sorted([self.sel_start, self.sel_end])
             added = 0
@@ -1935,6 +1946,45 @@ class EditorTab:
         self._active_track = 'result'
         self._update_active_label()
         self.log(f"{tr('Pasted:')} {(end-start)/self.sr:.2f}s")
+        self._redraw()
+    
+    def _duplicate_part_to_selection(self, source_part, sel_start, sel_end):
+        parts_dir = self._get_parts_dir()
+        new_part = PartGroup(sel_start, sel_end, parts_dir, self.sr)
+        
+        for i, v in enumerate(source_part.versions):
+            new_part.versions.append(v)
+            orig_params = source_part.version_params[i] if i < len(source_part.version_params) else None
+            if orig_params:
+                new_part.version_params.append(orig_params.copy())
+            elif v not in ("__COMPUTED_BASE__", "__SILENT__"):
+                new_part.version_params.append({
+                    "original_start": source_part.start,
+                    "original_end": source_part.end
+                })
+            else:
+                new_part.version_params.append(None)
+        
+        new_part.active_idx = source_part.active_idx
+        new_part.has_base = source_part.has_base
+        new_part.volume_db = source_part.volume_db
+        
+        self.part_groups.append(new_part)
+        
+        self._apply_counter += 1
+        new_part.apply_order = self._apply_counter
+        new_part.last_blend = self.blend_mode
+        new_part.last_crossfade_type = self.crossfade_type
+        new_part.last_preserve = False
+        
+        self._apply_version_data(new_part, False, self.blend_mode, self.crossfade_type)
+        self._compute_overwritten_ranges()
+        
+        self._push_snapshot()
+        self._save_project()
+        
+        self.log(tr("Part duplicated to selection"))
+        self.result_wf._wf_cache_key = None
         self._redraw()
     
     def _finalize_part_move(self, part, delta):

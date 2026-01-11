@@ -673,18 +673,21 @@ class WaveformCanvas(tk.Canvas):
             w = self.winfo_width()
             sample = max(0, min(ed.total_samples - 1, ed._x2s(e.x, w)))
             snapped = ed._snap_to_points(sample, w, snap_to_markers=True, snap_to_selection=True, exclude_part=part)
+            
+            old_start = self._drag_start_data["old_start"]
+            old_end = self._drag_start_data["old_end"]
+            
             if edge_type == 'start':
-                new_start = max(0, min(snapped, part.end - MIN_PART_SIZE))
-                changed = part.start != new_start
-                part.start = new_start
+                part.start = max(0, min(snapped, part.end - MIN_PART_SIZE))
             else:
-                new_end = min(ed.total_samples, max(snapped, part.start + MIN_PART_SIZE))
-                changed = part.end != new_end
-                part.end = new_end
+                part.end = min(ed.total_samples, max(snapped, part.start + MIN_PART_SIZE))
+            
+            changed = (part.start != old_start or part.end != old_end)
             self._drag_part_edge = None
             self._drag_start_data = None
+            
             if changed:
-                ed._compute_overwritten_ranges()
+                ed._rebuild_result_from_parts()
                 ed._push_snapshot()
             ed._redraw()
             ed._save_project()
